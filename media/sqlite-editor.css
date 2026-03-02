@@ -1,0 +1,352 @@
+:root {
+  color-scheme: light dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--vscode-font-family);
+  background: var(--vscode-editor-background);
+  color: var(--vscode-editor-foreground);
+  height: 100vh;
+  display: flex;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: linear-gradient(120deg, rgba(60, 115, 255, 0.12), rgba(20, 20, 20, 0.1));
+}
+
+.header-title {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.header-title h1 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.header-meta {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.header-pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--vscode-panel-border);
+  background: rgba(90, 90, 90, 0.15);
+}
+
+.container {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 260px;
+  border-right: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-sideBar-background);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-header {
+  padding: 12px 16px 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--vscode-descriptionForeground);
+}
+
+.table-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 8px 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.table-item {
+  padding: 8px 10px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.table-item:hover {
+  background: var(--vscode-list-hoverBackground);
+  transform: translateX(2px);
+}
+
+.table-item.active {
+  background: var(--vscode-list-activeSelectionBackground);
+  color: var(--vscode-list-activeSelectionForeground);
+}
+
+.table-item .table-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.table-badges {
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+.badge {
+  padding: 2px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--vscode-panel-border);
+  background: rgba(90, 90, 90, 0.15);
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-editor-background);
+  gap: 12px;
+}
+
+.toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+}
+
+.toolbar-right {
+  display: flex;
+  gap: 8px;
+}
+
+input[type="text"],
+textarea {
+  width: 100%;
+  padding: 6px 10px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+button {
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--vscode-button-border, transparent);
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  cursor: pointer;
+  font-size: 12px;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+button:hover {
+  background: var(--vscode-button-hoverBackground);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+}
+
+button.secondary {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}
+
+button.danger {
+  background: var(--vscode-errorForeground);
+  color: #fff;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.status-bar {
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  border-bottom: 1px solid var(--vscode-panel-border);
+  display: flex;
+  gap: 16px;
+}
+
+.table-container,
+.query-panel {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+}
+
+.query-panel {
+  display: none;
+}
+
+.query-panel.active {
+  display: block;
+}
+
+.table-container.hidden {
+  display: none;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+th,
+td {
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-panel-border);
+  text-align: left;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--vscode-editor-lineHighlightBackground);
+  font-weight: 600;
+}
+
+tr:nth-child(even) td {
+  background: rgba(90, 90, 90, 0.05);
+}
+
+tr:hover td {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.cell-editable {
+  cursor: text;
+  min-width: 120px;
+}
+
+.cell-editable:focus {
+  outline: 2px solid var(--vscode-focusBorder);
+  outline-offset: -2px;
+}
+
+.cell-highlight {
+  animation: flash 1.2s ease;
+}
+
+@keyframes flash {
+  0% {
+    background: rgba(80, 200, 120, 0.35);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.rowid {
+  font-weight: 600;
+  color: var(--vscode-descriptionForeground);
+}
+
+.empty-state {
+  padding: 40px;
+  text-align: center;
+  color: var(--vscode-descriptionForeground);
+}
+
+.message {
+  margin: 12px 16px 0;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid var(--vscode-panel-border);
+}
+
+.message.success {
+  background: rgba(60, 160, 90, 0.15);
+  color: #3fc46b;
+}
+
+.message.error {
+  background: rgba(200, 60, 60, 0.15);
+  color: #ff6f6f;
+}
+
+.modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 10;
+}
+
+.modal.active {
+  display: flex;
+}
+
+.modal-card {
+  width: min(520px, 90vw);
+  max-height: 80vh;
+  overflow: auto;
+  background: var(--vscode-editor-background);
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 10px;
+  padding: 20px;
+}
+
+.modal-card h3 {
+  margin: 0 0 12px;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}

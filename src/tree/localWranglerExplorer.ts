@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
@@ -25,6 +26,8 @@ import {
   WranglerR2ObjectNode,
   WranglerR2PrefixNode,
   WranglerRootNode,
+  WranglerSqliteDatabaseNode,
+  WranglerSqliteRootNode,
   WranglerStorageTypeNode,
   isWranglerD1DatabaseNode,
   isWranglerD1RowNode,
@@ -34,12 +37,17 @@ import {
   isWranglerR2BucketNode,
   isWranglerR2PrefixNode,
   isWranglerRootNode,
+  isWranglerSqliteDatabaseNode,
+  isWranglerSqliteRootNode,
   isWranglerStorageTypeNode,
 } from "./localWranglerNodes";
+import { getManualSqliteDatabases } from "../sqlite/manualDatabases";
 
 export class LocalWranglerExplorer
   implements vscode.TreeDataProvider<LocalWranglerNode>
 {
+  constructor(private readonly store: vscode.Memento) {}
+
   private _onDidChangeTreeData: vscode.EventEmitter<
     LocalWranglerNode | undefined | null | void
   > = new vscode.EventEmitter<LocalWranglerNode | undefined | null | void>();
@@ -63,6 +71,10 @@ export class LocalWranglerExplorer
 
       if (isWranglerRootNode(element)) {
         return await this.getStorageTypes(element);
+      }
+
+      if (isWranglerSqliteRootNode(element)) {
+        return await this.getManualSqliteDatabases();
       }
 
       if (isWranglerStorageTypeNode(element)) {
@@ -106,6 +118,10 @@ export class LocalWranglerExplorer
         return [];
       }
 
+      if (isWranglerSqliteDatabaseNode(element)) {
+        return [];
+      }
+
       return [];
     } catch (error) {
       if (error instanceof BunNotFoundError) {
@@ -124,24 +140,33 @@ export class LocalWranglerExplorer
 
   private async getRoots(): Promise<LocalWranglerNode[]> {
     const workspaceFolders = vscode.workspace.workspaceFolders;
+    const roots: LocalWranglerNode[] = [];
+    roots.push(await this.getManualSqliteRoot());
+
     if (!workspaceFolders || workspaceFolders.length === 0) {
-      return [
-        new MessageNode("Open a workspace to scan for .wrangler directories."),
-      ];
+      roots.push(
+        new MessageNode("Open a workspace to scan for .wrangler directories.")
+      );
+      return roots;
     }
 
-    const roots = await findWranglerRoots(
+    const wranglerRoots = await findWranglerRoots(
       workspaceFolders.map((folder) => folder.uri.fsPath)
     );
 
-    if (roots.length === 0) {
-      return [new MessageNode("No .wrangler directories found.")];
+    if (wranglerRoots.length === 0) {
+      roots.push(new MessageNode("No .wrangler directories found."));
+      return roots;
     }
 
-    return roots.map((wranglerPath) => {
-      const label = formatWranglerRootLabel(wranglerPath, workspaceFolders);
-      return new WranglerRootNode(label, wranglerPath);
-    });
+    roots.push(
+      ...wranglerRoots.map((wranglerPath) => {
+        const label = formatWranglerRootLabel(wranglerPath, workspaceFolders);
+        return new WranglerRootNode(label, wranglerPath);
+      })
+    );
+
+    return roots;
   }
 
   private async getStorageTypes(
@@ -166,9 +191,19 @@ export class LocalWranglerExplorer
       return [new MessageNode("No KV namespaces found.")];
     }
 
-    return namespaces.map(
-      (namespace) => new WranglerKvNamespaceNode(storageNode.wranglerPath, namespace)
-    );
+    const nodes: LocalWranglerNode[] = [];
+    for (const namespace of namespaces) {
+      const node = new WranglerKvNamespaceNode(storageNode.wranglerPath, namespace);
+      if (namespace.sqlitePath) {
+        const description = await describeSqliteFile(namespace.sqlitePath);
+        if (description) {
+          node.description = description;
+        }
+      }
+      nodes.push(node);
+    }
+
+    return nodes;
   }
 
   private async getKvEntries(
@@ -274,14 +309,20 @@ export class LocalWranglerExplorer
       return [new MessageNode("No D1 databases found.")];
     }
 
-    return databases.map(
-      (db) =>
-        new WranglerD1DatabaseNode(
-          storageNode.wranglerPath,
-          db.sqlitePath,
-          db.displayName
-        )
-    );
+    const nodes: LocalWranglerNode[] = [];
+    for (const db of databases) {
+      const node = new WranglerD1DatabaseNode(
+        storageNode.wranglerPath,
+        db.sqlitePath,
+        db.displayName
+      );
+      const description = await describeSqliteFile(db.sqlitePath);
+      if (description) {
+        node.description = description;
+      }
+      nodes.push(node);
+    }
+    return nodes;
   }
 
   private async getD1Tables(
@@ -326,6 +367,28 @@ export class LocalWranglerExplorer
         )
     );
   }
+
+  private async getManualSqliteRoot(): Promise<WranglerSqliteRootNode> {
+    const entries = getManualSqliteDatabases(this.store);
+    const description = entries.length > 0 ? `${entries.length} saved` : "Add a database";
+    return new WranglerSqliteRootNode("SQLite Databases", description);
+  }
+
+  private async getManualSqliteDatabases(): Promise<LocalWranglerNode[]> {
+    const entries = getManualSqliteDatabases(this.store);
+    if (entries.length === 0) {
+      return [new MessageNode("Use \"Add SQLite Database\" to include a file.")];
+    }
+
+    const nodes: LocalWranglerNode[] = [];
+    for (const entry of entries) {
+      const description = await describeSqliteFile(entry.dbPath);
+      nodes.push(
+        new WranglerSqliteDatabaseNode(entry.id, entry.label, entry.dbPath, description)
+      );
+    }
+    return nodes;
+  }
 }
 
 function formatWranglerRootLabel(
@@ -342,4 +405,23 @@ function formatWranglerRootLabel(
   }
 
   return wranglerPath;
+}
+
+async function describeSqliteFile(dbPath: string): Promise<string | undefined> {
+  try {
+    const stats = await fs.promises.stat(dbPath);
+    const size = formatBytes(stats.size);
+    const modified = stats.mtime.toLocaleString();
+    return `${size} • ${modified}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const idx = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / Math.pow(1024, idx);
+  return `${value.toFixed(1)} ${units[idx]}`;
 }

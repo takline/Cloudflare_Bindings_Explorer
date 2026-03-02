@@ -192,6 +192,26 @@
         "command": "wranglerLocal.openItem",
         "title": "Open Wrangler Item",
         "icon": "$(file)"
+      },
+      {
+        "command": "wranglerLocal.openSqliteDatabase",
+        "title": "Open SQLite Database",
+        "icon": "$(database)"
+      },
+      {
+        "command": "wranglerLocal.addSqliteDatabase",
+        "title": "Add SQLite Database",
+        "icon": "$(add)"
+      },
+      {
+        "command": "wranglerLocal.removeSqliteDatabase",
+        "title": "Remove SQLite Database",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "wranglerLocal.revealSqliteDatabase",
+        "title": "Reveal SQLite Database",
+        "icon": "$(go-to-file)"
       }
     ],
     "menus": {
@@ -220,6 +240,11 @@
           "command": "wranglerLocal.refresh",
           "when": "view == wranglerLocalExplorer",
           "group": "navigation@1"
+        },
+        {
+          "command": "wranglerLocal.addSqliteDatabase",
+          "when": "view == wranglerLocalExplorer",
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -292,6 +317,21 @@
           "command": "wranglerLocal.openItem",
           "when": "view == wranglerLocalExplorer && (viewItem == wranglerKvEntry || viewItem == wranglerR2Object || viewItem == wranglerD1Row)",
           "group": "3_actions@1"
+        },
+        {
+          "command": "wranglerLocal.openSqliteDatabase",
+          "when": "view == wranglerLocalExplorer && (viewItem == wranglerD1Database || viewItem == wranglerKvNamespace || viewItem == wranglerSqliteDatabase)",
+          "group": "3_actions@2"
+        },
+        {
+          "command": "wranglerLocal.revealSqliteDatabase",
+          "when": "view == wranglerLocalExplorer && (viewItem == wranglerD1Database || viewItem == wranglerKvNamespace || viewItem == wranglerSqliteDatabase)",
+          "group": "3_actions@3"
+        },
+        {
+          "command": "wranglerLocal.removeSqliteDatabase",
+          "when": "view == wranglerLocalExplorer && viewItem == wranglerSqliteDatabase",
+          "group": "4_manage@1"
         }
       ],
       "commandPalette": [
@@ -315,6 +355,12 @@
         },
         {
           "command": "wranglerLocal.refresh"
+        },
+        {
+          "command": "wranglerLocal.openSqliteDatabase"
+        },
+        {
+          "command": "wranglerLocal.addSqliteDatabase"
         }
       ]
     },
@@ -327,6 +373,16 @@
             "filenamePattern": "*.eml"
           }
         ]
+      },
+      {
+        "viewType": "cloudflareBindingsExplorer.sqliteEditor",
+        "displayName": "SQLite Visual Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.{db,sqlite,sqlite3}"
+          }
+        ],
+        "priority": "option"
       }
     ]
   },
@@ -352,6 +408,7 @@
     "@types/bun": "^1.3.9",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.19.9",
+    "@types/sql.js": "^1.4.9",
     "@types/vscode": "^1.74.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
@@ -369,6 +426,7 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.856.0",
     "@aws-sdk/s3-request-presigner": "^3.856.0",
-    "postal-mime": "^2.7.3"
+    "postal-mime": "^2.7.3",
+    "sql.js": "^1.14.0"
   }
 }
