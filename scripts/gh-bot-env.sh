@@ -1,0 +1,5 @@
+export GH_BOT_APP_ID="$(op read "op://Tyler/Github/app_id")"
+export GH_BOT_CLIENT_ID="$(op read "op://Tyler/Github/client_id")"
+export GH_BOT_APP_SECRET="$(op read "op://Tyler/Github/app_secret" 2>/dev/null || true)"
+export GH_BOT_PRIVATE_KEY="$(op read "op://Tyler/Github/private_key")"
+export GH_BOT_INSTALLATION_ID="113548075"

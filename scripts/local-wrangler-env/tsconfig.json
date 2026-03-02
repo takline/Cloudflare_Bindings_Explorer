@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "types": [
+      "./worker-configuration.d.ts"
+    ],
+    "allowJs": true,
+    "downlevelIteration": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "./worker-configuration.d.ts",
+    "./mockMain.ts",
+  ],
+  "exclude": []
+}

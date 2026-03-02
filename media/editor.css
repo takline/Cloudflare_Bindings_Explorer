@@ -1,0 +1,204 @@
+/* === Header Table === */
+.header-table {
+	width: 100%;
+	border-collapse: collapse;
+	margin-bottom: 8px;
+	font-size: 13px;
+	font-family: var(--vscode-font-family);
+}
+
+.header-table th,
+.header-table td {
+	border: none;
+	padding: 4px 8px;
+	text-align: left;
+	vertical-align: top;
+}
+
+.header-table tr:nth-child(odd) {
+	background-color: color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+}
+
+.header-table th {
+	width: 100px;
+	white-space: nowrap;
+	font-weight: 600;
+	color: var(--vscode-descriptionForeground);
+}
+
+.header-table td {
+	color: var(--vscode-foreground);
+	word-break: break-word;
+}
+
+/* === Editable Header Cells === */
+.header-table th[contenteditable="true"],
+.header-table td[contenteditable="true"] {
+	cursor: text;
+	outline: none;
+}
+
+.header-table th[contenteditable="true"]:focus,
+.header-table td[contenteditable="true"]:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+	background-color: var(--vscode-input-background);
+}
+
+.header-table tr:hover {
+	background-color: var(--vscode-list-hoverBackground) !important;
+}
+
+/* === Action Column (Delete Button) === */
+.header-action-cell {
+	width: 28px;
+	text-align: center;
+	padding: 0 !important;
+}
+
+.header-delete-btn {
+	background: none;
+	border: none;
+	color: var(--vscode-descriptionForeground);
+	cursor: pointer;
+	font-size: 16px;
+	line-height: 1;
+	padding: 2px 6px;
+	opacity: 0;
+	transition: opacity 0.1s;
+}
+
+.header-table tr:hover .header-delete-btn {
+	opacity: 0.6;
+}
+
+.header-delete-btn:hover {
+	opacity: 1 !important;
+	color: var(--vscode-errorForeground);
+}
+
+/* === Add Header Button === */
+.add-header-btn {
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px;
+	margin-bottom: 16px;
+	font-size: 12px;
+	color: var(--vscode-textLink-foreground);
+	background: none;
+	border: 1px dashed var(--vscode-panel-border);
+	border-radius: 2px;
+	font-family: var(--vscode-font-family);
+}
+
+.add-header-btn:hover {
+	color: var(--vscode-textLink-activeForeground);
+	border-color: var(--vscode-textLink-foreground);
+}
+
+/* === Attachment Cards === */
+.attachment-cards {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 16px;
+}
+
+.attachment-card {
+	width: 180px;
+	padding: 10px 12px;
+	border: 1px solid var(--vscode-panel-border, var(--vscode-editorGroup-border));
+	border-radius: 4px;
+	cursor: pointer;
+	transition: background-color 0.1s, border-color 0.1s;
+}
+
+.attachment-card:hover {
+	background-color: var(--vscode-list-hoverBackground);
+	border-color: var(--vscode-focusBorder);
+}
+
+.attachment-card-name {
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--vscode-foreground);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--vscode-font-family);
+}
+
+.attachment-card-meta {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	margin-top: 4px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-family: var(--vscode-font-family);
+}
+
+/* === Text Body Textarea === */
+#mail-text textarea {
+	width: 100%;
+	box-sizing: border-box;
+	min-height: 60px;
+	padding: 8px;
+	border: 1px solid var(--vscode-input-border);
+	border-radius: 2px;
+	background-color: var(--vscode-input-background);
+	color: var(--vscode-input-foreground);
+	font-family: var(--vscode-editor-font-family, monospace);
+	font-size: var(--vscode-editor-font-size, 13px);
+	line-height: 1.5;
+	resize: none;
+	overflow: hidden;
+}
+
+#mail-text textarea:focus {
+	outline: 1px solid var(--vscode-focusBorder);
+	outline-offset: -1px;
+}
+
+#mail-text textarea::placeholder {
+	color: var(--vscode-input-placeholderForeground);
+	font-style: italic;
+}
+
+/* === HTML Body Toolbar === */
+.html-body-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+.edit-source-btn {
+	cursor: pointer;
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px;
+	font-size: 12px;
+	color: var(--vscode-textLink-foreground);
+	background: none;
+	border: 1px solid var(--vscode-panel-border);
+	border-radius: 2px;
+	font-family: var(--vscode-font-family);
+}
+
+.edit-source-btn:hover {
+	color: var(--vscode-textLink-activeForeground);
+	border-color: var(--vscode-textLink-foreground);
+}
+
+/* === HTML Body Hint === */
+.html-body-hint {
+	font-size: 11px;
+	color: var(--vscode-descriptionForeground);
+	font-style: italic;
+}
+
