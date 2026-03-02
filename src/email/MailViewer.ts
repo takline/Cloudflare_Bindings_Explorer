@@ -268,6 +268,28 @@ export class MailViewer implements vscode.CustomTextEditorProvider {
 					return;
 				}
 
+				case 'copyTextBody': {
+					const { text } = e as { text?: string };
+					if (text && text.trim().length > 0) {
+						await vscode.env.clipboard.writeText(text);
+						vscode.window.showInformationMessage('Text body copied to clipboard.');
+					} else {
+						vscode.window.showWarningMessage('No text body available to copy.');
+					}
+					return;
+				}
+
+				case 'copyHtmlBody': {
+					const { html } = e as { html?: string };
+					if (html && html.trim().length > 0) {
+						await vscode.env.clipboard.writeText(html);
+						vscode.window.showInformationMessage('HTML body copied to clipboard.');
+					} else {
+						vscode.window.showWarningMessage('No HTML body available to copy.');
+					}
+					return;
+				}
+
 				case 'openHtmlSource': {
 					const rawText = document.getText();
 					const bodyRange = findHtmlBodyRange(rawText);
@@ -357,7 +379,10 @@ export class MailViewer implements vscode.CustomTextEditorProvider {
 				<table class="header-table"><tbody id="header-table-body"></tbody></table>
 				<button class="add-header-btn" id="add-header-btn">+ Add Header</button>
 				<div id="mail-attachment"></div>
-				<h2>Text body</h2>
+				<div class="text-body-toolbar">
+					<h2>Text body</h2>
+					<button class="copy-body-btn" id="copy-text-btn">Copy text</button>
+				</div>
 				<div id="mail-text">
 				</div>
 				<h2>HTML body</h2>

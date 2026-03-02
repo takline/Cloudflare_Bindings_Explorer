@@ -8,6 +8,7 @@
 
 	// @ts-ignore
 	const vscode = acquireVsCodeApi();
+	let currentMail = null;
 
 	const errorContainer = document.createElement('div');
 	document.body.appendChild(errorContainer);
@@ -124,6 +125,7 @@
 	 * Render the document in the webview.
 	 */
 	function updateContent(/** @type {import("postal-mime").Email & { textAsHtml?: string }} */ mail) {
+		currentMail = mail;
 		// Build editable header table from all headers
 		const headerTableBody = document.getElementById('header-table-body');
 		if (headerTableBody) {
@@ -191,6 +193,14 @@
 					editSourceBtn.addEventListener('click', () => {
 						vscode.postMessage({ type: 'openHtmlSource' });
 					});
+					const copyHtmlBtn = document.createElement('button');
+					copyHtmlBtn.className = 'copy-body-btn';
+					copyHtmlBtn.textContent = 'Copy HTML';
+					copyHtmlBtn.addEventListener('click', () => {
+						const html = currentMail && currentMail.html ? currentMail.html : '';
+						vscode.postMessage({ type: 'copyHtmlBody', html });
+					});
+					toolbar.appendChild(copyHtmlBtn);
 					toolbar.appendChild(editSourceBtn);
 					mailHtmlElement.appendChild(toolbar);
 
@@ -210,6 +220,9 @@
 
 						doc.body.contentEditable = 'true';
 						doc.body.style.outline = 'none';
+						const selectionStyle = doc.createElement('style');
+						selectionStyle.textContent = '* { user-select: text !important; }';
+						doc.head && doc.head.appendChild(selectionStyle);
 
 						// Auto-resize iframe to fit content
 						const resize = () => {
@@ -292,6 +305,14 @@
 	if (addHeaderBtn) {
 		addHeaderBtn.addEventListener('click', () => {
 			vscode.postMessage({ type: 'addHeader' });
+		});
+	}
+
+	const copyTextBtn = document.getElementById('copy-text-btn');
+	if (copyTextBtn) {
+		copyTextBtn.addEventListener('click', () => {
+			const text = currentMail && typeof currentMail.text === 'string' ? currentMail.text : '';
+			vscode.postMessage({ type: 'copyTextBody', text });
 		});
 	}
 
