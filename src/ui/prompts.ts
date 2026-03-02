@@ -343,7 +343,7 @@ export async function promptForConfigurationSetup(): Promise<boolean> {
     return true; // Already configured
   }
 
-  const message = `R2 Explorer is not configured. Missing: ${errors.join(
+  const message = `Cloudflare Bindings Explorer is not configured. Missing: ${errors.join(
     ", "
   )}. Would you like to configure it now?`;
 
@@ -392,7 +392,7 @@ export async function promptForConfigurationSetup(): Promise<boolean> {
     vscode.ConfigurationTarget.Global
   );
 
-  showInformationMessage("R2 Explorer has been configured successfully!");
+  showInformationMessage("Cloudflare Bindings Explorer has been configured successfully!");
   return true;
 }
 

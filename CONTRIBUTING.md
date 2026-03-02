@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to R2 Explorer.
+Thanks for contributing to Cloudflare Bindings Explorer.
 
 ## Development Setup
 1. Install dependencies:

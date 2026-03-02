@@ -19,3 +19,4 @@ jobs:
         uses: peter-evans/enable-pull-request-automerge@v3
         with:
           merge-method: squash
+          pull-request-number: ${{ github.event.pull_request.number }}
