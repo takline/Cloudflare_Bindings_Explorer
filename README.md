@@ -1,6 +1,8 @@
-# R2-Explorer
+# Cloudflare Bindings Explorer
 
-A Visual Studio Code extension to browse and manage Cloudflare R2, AWS S3, and MinIO storage directly in your editor. This extension combines file explorer functionality with a built-in EML (Email) file viewer.
+![Cloudflare Bindings Explorer](logo.png)
+
+A Visual Studio Code extension to browse and manage Cloudflare bindings (R2, KV, D1), AWS S3, and MinIO storage directly in your editor. This extension combines file explorer functionality with a built-in EML (Email) file viewer.
 
 ## Features
 - Connect to S3-compatible cloud storage (specifically configured and optimized for Cloudflare R2)

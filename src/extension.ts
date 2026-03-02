@@ -68,7 +68,7 @@ let s3FileSystemProvider: S3FileSystemProvider;
 let localWranglerExplorer: LocalWranglerExplorer;
 
 export async function activate(context: vscode.ExtensionContext) {
-  console.log("R2 Explorer is activating...");
+  console.log("Cloudflare Bindings Explorer is activating...");
 
   // Initialize providers
   s3Explorer = new S3Explorer();
@@ -122,7 +122,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  console.log("R2 Explorer activated successfully");
+  console.log("Cloudflare Bindings Explorer activated successfully");
 }
 
 export function deactivate() {
@@ -283,7 +283,7 @@ function registerCommands(context: vscode.ExtensionContext) {
       s3Cache.invalidateAll();
       clearClientCache();
       s3Explorer.refresh();
-      showInformationMessage("R2 Explorer refreshed completely");
+      showInformationMessage("Cloudflare Bindings Explorer refreshed completely");
     })
   );
 
@@ -742,7 +742,7 @@ async function handleSmokeTest() {
 
         // Create a test object
         const testKey = `_s3x_test_${Date.now()}.txt`;
-        const testContent = `R2 Explorer smoke test\nTimestamp: ${new Date().toISOString()}`;
+        const testContent = `Cloudflare Bindings Explorer smoke test\nTimestamp: ${new Date().toISOString()}`;
 
         await createFolder(testBucket, "test-folder/");
         await uploadFile(testBucket, testKey, "test-content", (prog) => {
@@ -763,7 +763,7 @@ async function handleSmokeTest() {
     );
 
     showInformationMessage(
-      "✅ Smoke test passed! R2 Explorer is working correctly."
+      "✅ Smoke test passed! Cloudflare Bindings Explorer is working correctly."
     );
   } catch (error) {
     showErrorMessage(

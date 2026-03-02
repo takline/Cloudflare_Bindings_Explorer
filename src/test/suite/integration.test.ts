@@ -107,7 +107,7 @@ suite("R2 Integration Tests", () => {
     }
 
     const testKey = generateTestObjectKey("s3x-test-crud");
-    const testContent = `Test content created at ${new Date().toISOString()}\nThis is a test object for the R2 Explorer extension.`;
+    const testContent = `Test content created at ${new Date().toISOString()}\nThis is a test object for the Cloudflare Bindings Explorer extension.`;
     const testContentBytes = new TextEncoder().encode(testContent);
 
     try {
