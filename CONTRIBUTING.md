@@ -40,6 +40,14 @@ cd scripts/local-wrangler-env
 bun ./populate-wrangler.ts
 ```
 
+## GitHub CLI Auth
+To run `gh` commands with the bot credentials, load the secrets from 1Password and mint a token:
+```bash
+source ./scripts/gh-bot-env.sh
+export GH_TOKEN="$(bun ./scripts/gh-bot-token.ts)"
+gh auth status
+```
+
 ## Pull Requests
 - Keep changes focused and include tests when behavior changes.
 - Update documentation for user-facing changes.
