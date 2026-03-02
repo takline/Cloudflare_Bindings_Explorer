@@ -1,0 +1,31 @@
+{
+  "name": "auth-tests",
+  "main": "./mockMain.ts",
+  "compatibility_date": "2025-05-05",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "logpush": false,
+  "upload_source_maps": true,
+  "minify": false,
+  "vars": {
+    "IS_PROD": "no",
+    "MASTER_ROOT_KEY_V1": "testsecret5343sd",
+    "MASTER_ROOT_KEY_V2": "testsecret5343sd"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "MOCK_KV",
+      "id": "b24e625544194fca9be52c2bea4a5cc5",
+      "remote": false
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "MOCK_DB",
+      "database_name": "mock-db",
+      "database_id": "787b4e40-64e2-44c8-a286-f3289d1fbe06",
+      "remote": false
+    }
+  ]
+}

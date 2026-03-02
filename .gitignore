@@ -1,0 +1,13 @@
+node_modules
+.vscode-test/
+.DS_Store
+dist/
+out/
+test/fixtures/temp
+coverage/
+.env
+/*.vsix
+package-lock.json
+errors.log
+*.DS_Store
+.wrangler
