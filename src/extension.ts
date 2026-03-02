@@ -1,9 +1,15 @@
 import * as fs from "node:fs";
+import * as path from "node:path";
 import * as vscode from "vscode";
 import { S3Explorer } from "./tree/explorer";
 import { LocalWranglerExplorer } from "./tree/localWranglerExplorer";
 import { S3FileSystemProvider } from "./fs/provider";
 import { initLocalWranglerClient } from "./local-wrangler/client";
+import { SqliteVisualEditor } from "./sqlite/SqliteVisualEditor";
+import {
+  addManualSqliteDatabase,
+  removeManualSqliteDatabase,
+} from "./sqlite/manualDatabases";
 import { listBuckets, searchObjects } from "./s3/listing";
 import {
   createFolder,
@@ -27,8 +33,11 @@ import {
 } from "./tree/nodes";
 import {
   isWranglerD1RowNode,
+  isWranglerD1DatabaseNode,
   isWranglerKvEntryNode,
+  isWranglerKvNamespaceNode,
   isWranglerR2ObjectNode,
+  isWranglerSqliteDatabaseNode,
   LocalWranglerNode,
 } from "./tree/localWranglerNodes";
 import {
@@ -74,10 +83,11 @@ export async function activate(context: vscode.ExtensionContext) {
   s3Explorer = new S3Explorer();
   s3FileSystemProvider = new S3FileSystemProvider();
   initLocalWranglerClient(context.extensionPath);
-  localWranglerExplorer = new LocalWranglerExplorer();
+  localWranglerExplorer = new LocalWranglerExplorer(context.workspaceState);
 
   // Register Email Viewer
   context.subscriptions.push(MailViewer.register(context));
+  context.subscriptions.push(SqliteVisualEditor.register(context));
 
   // Register FileSystem provider for s3x:// scheme
   const fsProviderDisposable = vscode.workspace.registerFileSystemProvider(
@@ -301,6 +311,42 @@ function registerCommands(context: vscode.ExtensionContext) {
       "wranglerLocal.openItem",
       async (node: LocalWranglerNode) => {
         await handleOpenLocalWranglerItem(node);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "wranglerLocal.openSqliteDatabase",
+      async (nodeOrPath?: LocalWranglerNode | string) => {
+        await handleOpenSqliteDatabase(nodeOrPath);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "wranglerLocal.addSqliteDatabase",
+      async () => {
+        await handleAddSqliteDatabase(context);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "wranglerLocal.removeSqliteDatabase",
+      async (node: LocalWranglerNode) => {
+        await handleRemoveSqliteDatabase(context, node);
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "wranglerLocal.revealSqliteDatabase",
+      async (node: LocalWranglerNode) => {
+        await handleRevealSqliteDatabase(node);
       }
     )
   );
@@ -836,6 +882,166 @@ async function handleOpenLocalWranglerItem(node: LocalWranglerNode) {
   } catch (error) {
     showErrorMessage(
       `Failed to open Wrangler item: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+}
+
+async function handleOpenSqliteDatabase(nodeOrPath?: LocalWranglerNode | string) {
+  try {
+    let dbPath: string | undefined;
+
+    if (!nodeOrPath) {
+      const fileUri = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        filters: {
+          "SQLite Database": ["db", "sqlite", "sqlite3"],
+        },
+      });
+      dbPath = fileUri?.[0]?.fsPath;
+    } else if (typeof nodeOrPath === "string") {
+      dbPath = nodeOrPath;
+    } else if (isWranglerD1DatabaseNode(nodeOrPath)) {
+      dbPath = nodeOrPath.sqlitePath;
+    } else if (isWranglerKvNamespaceNode(nodeOrPath)) {
+      if (!nodeOrPath.namespace.sqlitePath) {
+        showErrorMessage("KV metadata database not found for this namespace.");
+        return;
+      }
+      dbPath = nodeOrPath.namespace.sqlitePath;
+    } else if (isWranglerSqliteDatabaseNode(nodeOrPath)) {
+      dbPath = nodeOrPath.dbPath;
+    }
+
+    if (!dbPath) {
+      return;
+    }
+
+    if (!fs.existsSync(dbPath)) {
+      showErrorMessage(`SQLite database not found: ${dbPath}`);
+      return;
+    }
+
+    const uri = vscode.Uri.file(dbPath);
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      uri,
+      SqliteVisualEditor.viewType
+    );
+  } catch (error) {
+    showErrorMessage(
+      `Failed to open SQLite database: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+}
+
+async function handleAddSqliteDatabase(context: vscode.ExtensionContext) {
+  try {
+    const fileUri = await vscode.window.showOpenDialog({
+      canSelectMany: false,
+      filters: {
+        "SQLite Database": ["db", "sqlite", "sqlite3"],
+      },
+    });
+
+    if (!fileUri?.[0]) {
+      return;
+    }
+
+    const dbPath = fileUri[0].fsPath;
+    const suggested = path.basename(dbPath);
+    const label = await vscode.window.showInputBox({
+      prompt: "Name this database",
+      value: suggested,
+    });
+
+    const entry = await addManualSqliteDatabase(context.workspaceState, {
+      dbPath,
+      label: label?.trim(),
+    });
+
+    localWranglerExplorer.refresh();
+    const choice = await showInformationMessage(
+      `Added ${entry.label} to SQLite Databases.`,
+      "Open"
+    );
+    if (choice === "Open") {
+      await handleOpenSqliteDatabase(entry.dbPath);
+    }
+  } catch (error) {
+    showErrorMessage(
+      `Failed to add SQLite database: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+}
+
+async function handleRemoveSqliteDatabase(
+  context: vscode.ExtensionContext,
+  node: LocalWranglerNode
+) {
+  try {
+    if (!isWranglerSqliteDatabaseNode(node)) {
+      showErrorMessage("Select a saved SQLite database to remove.");
+      return;
+    }
+
+    const label =
+      typeof node.label === "string" ? node.label : node.label?.label ?? "database";
+    const confirmation = await vscode.window.showWarningMessage(
+      `Remove ${label} from SQLite Databases?`,
+      "Remove"
+    );
+
+    if (confirmation !== "Remove") {
+      return;
+    }
+
+    const removed = await removeManualSqliteDatabase(
+      context.workspaceState,
+      node.id
+    );
+
+    if (removed) {
+      localWranglerExplorer.refresh();
+      showInformationMessage(`Removed ${label}.`);
+    }
+  } catch (error) {
+    showErrorMessage(
+      `Failed to remove SQLite database: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+}
+
+async function handleRevealSqliteDatabase(node: LocalWranglerNode) {
+  try {
+    let dbPath: string | undefined;
+    if (isWranglerSqliteDatabaseNode(node)) {
+      dbPath = node.dbPath;
+    } else if (isWranglerD1DatabaseNode(node)) {
+      dbPath = node.sqlitePath;
+    } else if (isWranglerKvNamespaceNode(node)) {
+      dbPath = node.namespace.sqlitePath;
+    }
+
+    if (!dbPath) {
+      showErrorMessage("Select a SQLite database to reveal.");
+      return;
+    }
+
+    await vscode.commands.executeCommand(
+      "revealFileInOS",
+      vscode.Uri.file(dbPath)
+    );
+  } catch (error) {
+    showErrorMessage(
+      `Failed to reveal SQLite database: ${
         error instanceof Error ? error.message : error
       }`
     );

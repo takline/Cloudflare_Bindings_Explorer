@@ -5,6 +5,8 @@ import type { D1TableInfo, KvEntryInfo, KvNamespaceInfo, R2ObjectInfo } from "..
 
 export type LocalWranglerNodeType =
   | "wranglerRoot"
+  | "sqliteRoot"
+  | "sqliteDatabase"
   | "storageType"
   | "kvNamespace"
   | "kvPrefix"
@@ -61,6 +63,42 @@ export class WranglerStorageTypeNode extends LocalWranglerNode {
         : "cloud";
     this.iconPath = new vscode.ThemeIcon(iconName);
     this.tooltip = `Wrangler ${label} storage`;
+  }
+}
+
+export class WranglerSqliteRootNode extends LocalWranglerNode {
+  readonly type = "sqliteRoot" as const;
+
+  constructor(label: string, description?: string) {
+    super(label, vscode.TreeItemCollapsibleState.Collapsed);
+    this.contextValue = "wranglerSqliteRoot";
+    this.iconPath = new vscode.ThemeIcon("database");
+    if (description) {
+      this.description = description;
+    }
+  }
+}
+
+export class WranglerSqliteDatabaseNode extends LocalWranglerNode {
+  readonly type = "sqliteDatabase" as const;
+  readonly id: string;
+  readonly dbPath: string;
+
+  constructor(id: string, label: string, dbPath: string, description?: string) {
+    super(label, vscode.TreeItemCollapsibleState.None);
+    this.id = id;
+    this.dbPath = dbPath;
+    this.contextValue = "wranglerSqliteDatabase";
+    this.iconPath = new vscode.ThemeIcon("database");
+    this.tooltip = dbPath;
+    if (description) {
+      this.description = description;
+    }
+    this.command = {
+      command: "wranglerLocal.openSqliteDatabase",
+      title: "Open SQLite Database",
+      arguments: [this],
+    };
   }
 }
 
@@ -298,6 +336,18 @@ export function isWranglerStorageTypeNode(
   node: LocalWranglerNode
 ): node is WranglerStorageTypeNode {
   return node.type === "storageType";
+}
+
+export function isWranglerSqliteRootNode(
+  node: LocalWranglerNode
+): node is WranglerSqliteRootNode {
+  return node.type === "sqliteRoot";
+}
+
+export function isWranglerSqliteDatabaseNode(
+  node: LocalWranglerNode
+): node is WranglerSqliteDatabaseNode {
+  return node.type === "sqliteDatabase";
 }
 
 export function isWranglerKvNamespaceNode(
