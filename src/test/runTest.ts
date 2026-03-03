@@ -5,13 +5,10 @@ async function main() {
   try {
     process.env.R2_TEST_MODE = "1";
 
-    // The folder containing the Extension Manifest package.json
-    // Passed to `--extensionDevelopmentPath`
-    const extensionDevelopmentPath = path.resolve(__dirname, "../../");
-
-    // The path to test runner
-    // Passed to --extensionTestsPath
-    const extensionTestsPath = path.resolve(__dirname, "./suite/index");
+    const workspaceRoot = process.cwd();
+    // Resolve from repo root to avoid bundler-specific __dirname behavior in CI.
+    const extensionDevelopmentPath = workspaceRoot;
+    const extensionTestsPath = path.resolve(workspaceRoot, "out/test/suite/index");
 
     // Download VS Code, unzip it and run the integration test
     await runTests({

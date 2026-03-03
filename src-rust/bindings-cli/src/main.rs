@@ -1,4 +1,5 @@
 use anyhow::Context;
+use keyring::{Entry as KeyringEntry, Error as KeyringError};
 use opendal::{Operator, services};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
@@ -87,6 +88,12 @@ enum Action {
         sqlite_path: String,
         table: String,
     },
+    #[serde(rename = "setSecret")]
+    SetSecret { name: String, value: String },
+    #[serde(rename = "getSecret")]
+    GetSecret { name: String },
+    #[serde(rename = "deleteSecret")]
+    DeleteSecret { name: String },
 }
 
 #[derive(Serialize)]
@@ -229,6 +236,11 @@ struct D1RowsResult {
     rows: Vec<JsonMap<String, JsonValue>>,
 }
 
+#[derive(Serialize)]
+struct SecretResult {
+    value: Option<String>,
+}
+
 #[derive(Clone)]
 struct WranglerD1Config {
     database_name: Option<String>,
@@ -342,6 +354,18 @@ async fn run() -> anyhow::Result<()> {
         Action::ListD1Rows { sqlite_path, table } => {
             let result = list_d1_rows(&sqlite_path, &table).await?;
             println!("{}", serde_json::to_string(&result)?);
+        }
+        Action::SetSecret { name, value } => {
+            set_secret(&name, &value)?;
+            println!("{}", serde_json::to_string(&EmptyResult { success: true })?);
+        }
+        Action::GetSecret { name } => {
+            let value = get_secret(&name)?;
+            println!("{}", serde_json::to_string(&SecretResult { value })?);
+        }
+        Action::DeleteSecret { name } => {
+            delete_secret(&name)?;
+            println!("{}", serde_json::to_string(&EmptyResult { success: true })?);
         }
     }
 
@@ -733,6 +757,41 @@ fn list_storage_types(wrangler_dir: &str) -> WranglerStorageTypesResult {
     WranglerStorageTypesResult {
         state_path: state_path.to_string_lossy().to_string(),
         types,
+    }
+}
+
+const KEYRING_SERVICE: &str = "cloudflare-bindings-explorer";
+
+fn keyring_entry(name: &str) -> anyhow::Result<KeyringEntry> {
+    KeyringEntry::new(KEYRING_SERVICE, name).context("Failed to initialize keyring entry")
+}
+
+fn set_secret(name: &str, value: &str) -> anyhow::Result<()> {
+    let entry = keyring_entry(name)?;
+    entry
+        .set_password(value)
+        .with_context(|| format!("Failed to store secret in keyring: {name}"))?;
+    Ok(())
+}
+
+fn get_secret(name: &str) -> anyhow::Result<Option<String>> {
+    let entry = keyring_entry(name)?;
+    match entry.get_password() {
+        Ok(value) => Ok(Some(value)),
+        Err(KeyringError::NoEntry) => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("Failed to read secret from keyring: {name}"))
+        }
+    }
+}
+
+fn delete_secret(name: &str) -> anyhow::Result<()> {
+    let entry = keyring_entry(name)?;
+    match entry.delete_credential() {
+        Ok(_) | Err(KeyringError::NoEntry) => Ok(()),
+        Err(error) => {
+            Err(error).with_context(|| format!("Failed to delete secret from keyring: {name}"))
+        }
     }
 }
 

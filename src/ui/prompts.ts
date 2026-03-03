@@ -382,7 +382,7 @@ export async function promptForConfigurationSetup(): Promise<boolean> {
     endpoint,
     vscode.ConfigurationTarget.Global
   );
-  // Store credentials securely via Bun.secrets
+  // Store credentials securely via OS keyring
   await storeSecret("r2.accessKeyId", credentials.accessKeyId);
   // Clear the hardcoded setting if it exists
   await workspaceConfig.update("accessKeyId", undefined, vscode.ConfigurationTarget.Global);
