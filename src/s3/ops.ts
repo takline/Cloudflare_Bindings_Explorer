@@ -1,15 +1,12 @@
-import * as vscode from "vscode";
-import { withRetry, getConfig } from "./client";
+import { withRetry } from "./client";
 import { runS3Action } from "./bindings-client";
 import {
   S3ObjectMetadata,
   S3Error,
-  MultipartUpload,
   PresignOptions,
 } from "../types";
 
 const MULTIPART_THRESHOLD = 100 * 1024 * 1024; // 100MB
-const PART_SIZE = 10 * 1024 * 1024; // 10MB
 
 export async function getObject(
   bucket: string,

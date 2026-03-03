@@ -2,8 +2,6 @@ import { runS3Action } from "./bindings-client";
 import * as vscode from "vscode";
 import { S3Config, S3Error } from "../types";
 
-let cachedConfig: S3Config | null = null;
-
 import { getSecret } from "../util/secrets";
 
 export async function getConfig(): Promise<S3Config> {
@@ -50,19 +48,8 @@ function isValidUrl(url: string): boolean {
   }
 }
 
-
-function configsEqual(a: S3Config, b: S3Config): boolean {
-  return (
-    a.endpointUrl === b.endpointUrl &&
-    a.region === b.region &&
-    a.accessKeyId === b.accessKeyId &&
-    a.secretAccessKey === b.secretAccessKey &&
-    a.forcePathStyle === b.forcePathStyle
-  );
-}
-
 export function clearClientCache(): void {
-  cachedConfig = null;
+  // No-op: configuration is read fresh for each request.
 }
 
 export async function testConnection(): Promise<void> {
