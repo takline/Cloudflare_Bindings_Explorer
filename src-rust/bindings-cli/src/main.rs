@@ -714,7 +714,7 @@ fn list_wrangler_roots(roots: &[String]) -> Vec<String> {
             let name = entry.file_name().to_string_lossy().to_string();
             let entry_path = entry.path();
 
-            if name.starts_with(".wrangler") {
+            if name.starts_with(".wrangler") || name.starts_with("wrangler") {
                 found.insert(entry_path.to_string_lossy().to_string());
                 continue;
             }
@@ -1181,6 +1181,76 @@ async fn list_d1_rows(sqlite_path: &str, table: &str) -> anyhow::Result<D1RowsRe
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(D1RowsResult { rows: json_rows })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::list_wrangler_roots;
+    use std::fs;
+    use std::path::Path;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn new_temp_root() -> String {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should move forward")
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!("bindings-cli-test-{nonce}"));
+        fs::create_dir_all(&path).expect("failed to create temp directory");
+        path.to_string_lossy().to_string()
+    }
+
+    fn create_dir(path: &Path, relative: &str) {
+        fs::create_dir_all(path.join(relative)).expect("failed to create test directory");
+    }
+
+    #[test]
+    fn list_wrangler_roots_includes_dot_wrangler_and_wrangler_prefixes() {
+        let root = new_temp_root();
+        let root_path = Path::new(&root);
+
+        create_dir(root_path, ".wrangler");
+        create_dir(root_path, ".wrangler-state");
+        create_dir(root_path, "wrangler");
+        create_dir(root_path, "wrangler-cache");
+        create_dir(root_path, "something-else");
+
+        let found = list_wrangler_roots(&[root.clone()]);
+        let found_set = found.into_iter().collect::<std::collections::BTreeSet<_>>();
+
+        assert!(found_set.contains(
+            &root_path
+                .join(".wrangler")
+                .to_string_lossy()
+                .to_string()
+        ));
+        assert!(found_set.contains(
+            &root_path
+                .join(".wrangler-state")
+                .to_string_lossy()
+                .to_string()
+        ));
+        assert!(found_set.contains(
+            &root_path
+                .join("wrangler")
+                .to_string_lossy()
+                .to_string()
+        ));
+        assert!(found_set.contains(
+            &root_path
+                .join("wrangler-cache")
+                .to_string_lossy()
+                .to_string()
+        ));
+        assert!(!found_set.contains(
+            &root_path
+                .join("something-else")
+                .to_string_lossy()
+                .to_string()
+        ));
+
+        fs::remove_dir_all(root_path).expect("failed to remove temp directory");
+    }
 }
 
 #[tokio::main]

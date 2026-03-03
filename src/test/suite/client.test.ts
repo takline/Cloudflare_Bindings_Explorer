@@ -1,5 +1,4 @@
 import * as assert from "assert";
-import * as vscode from "vscode";
 import {
   getConfig,
   validateConfig,
@@ -7,20 +6,22 @@ import {
   clearClientCache,
 } from "../../s3/client";
 import {
+  TestConfig,
+  setSecureCredentials,
   setupTestEnvironment,
   teardownTestEnvironment,
   skipIfNoCredentials,
 } from "../test-config";
 
 describe("S3 Client Tests", () => {
-  let testConfig: any;
+  let testConfig: TestConfig;
 
-  suiteSetup(() => {
-    testConfig = setupTestEnvironment();
+  suiteSetup(async () => {
+    testConfig = await setupTestEnvironment();
   });
 
-  suiteTeardown(() => {
-    teardownTestEnvironment();
+  suiteTeardown(async () => {
+    await teardownTestEnvironment();
     clearClientCache();
   });
 
@@ -33,12 +34,23 @@ describe("S3 Client Tests", () => {
     assert.strictEqual(config.region, testConfig.region);
     assert.strictEqual(config.forcePathStyle, true);
     assert.strictEqual(config.maxPreviewSizeBytes, 10485760);
+    assert.notStrictEqual(config.accessKeyId, "legacy-setting-access-key");
+    assert.notStrictEqual(config.secretAccessKey, "legacy-setting-secret-key");
+  });
+
+  it("getConfig does not fall back to legacy settings credentials", async () => {
+    await setSecureCredentials("", "");
+    const configWithoutSecrets = await getConfig();
+    assert.strictEqual(configWithoutSecrets.accessKeyId, "");
+    assert.strictEqual(configWithoutSecrets.secretAccessKey, "");
+
+    await setSecureCredentials(testConfig.accessKeyId, testConfig.secretAccessKey);
   });
 
   it("validateConfig validates required fields", () => {
     const validConfig = {
       endpointUrl: "https://example.r2.cloudflarestorage.com",
-      region: "us-east-1",
+      region: "auto",
       accessKeyId: "test-access-key",
       secretAccessKey: "test-secret-key", 
       forcePathStyle: true,

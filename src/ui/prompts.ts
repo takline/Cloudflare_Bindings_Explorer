@@ -1,9 +1,9 @@
 import * as vscode from "vscode";
 import { S3Bucket } from "../types";
 import { listBuckets } from "../s3/listing";
-import { isValidS3Key, sanitizeS3Key, getFileName } from "../util/paths";
+import { isValidS3Key, sanitizeS3Key } from "../util/paths";
 import { getConfig, validateConfig } from "../s3/client";
-import { storeSecret } from "../util/secrets";
+import { openSecureSetupPanel } from "./secureSetupPanel";
 
 export interface QuickPickBucket extends vscode.QuickPickItem {
   bucket: S3Bucket;
@@ -270,68 +270,6 @@ export async function promptForMoveOrCopy(): Promise<
   return choice?.value as "move" | "copy" | undefined;
 }
 
-export async function promptForCredentials(): Promise<
-  { accessKeyId: string; secretAccessKey: string } | undefined
-> {
-  const accessKeyId = await vscode.window.showInputBox({
-    title: "S3 Access Key ID",
-    placeHolder: "Enter your S3 Access Key ID",
-    validateInput: (value) => {
-      if (!value || value.trim().length === 0) {
-        return "Access Key ID is required";
-      }
-      return undefined;
-    },
-  });
-
-  if (!accessKeyId) {
-    return undefined;
-  }
-
-  const secretAccessKey = await vscode.window.showInputBox({
-    title: "S3 Secret Access Key",
-    placeHolder: "Enter your S3 Secret Access Key",
-    password: true,
-    validateInput: (value) => {
-      if (!value || value.trim().length === 0) {
-        return "Secret Access Key is required";
-      }
-      return undefined;
-    },
-  });
-
-  if (!secretAccessKey) {
-    return undefined;
-  }
-
-  return { accessKeyId, secretAccessKey };
-}
-
-export async function promptForEndpoint(): Promise<string | undefined> {
-  const endpoint = await vscode.window.showInputBox({
-    title: "S3 Endpoint URL",
-    placeHolder: "https://your-account.r2.cloudflarestorage.com",
-    validateInput: (value) => {
-      if (!value || value.trim().length === 0) {
-        return "Endpoint URL is required";
-      }
-
-      try {
-        const url = new URL(value);
-        if (url.protocol !== "https:") {
-          return "Endpoint must use HTTPS";
-        }
-      } catch {
-        return "Invalid URL format";
-      }
-
-      return undefined;
-    },
-  });
-
-  return endpoint;
-}
-
 export async function promptForConfigurationSetup(): Promise<boolean> {
   if (process.env.R2_TEST_MODE === "1") {
     return false;
@@ -346,52 +284,25 @@ export async function promptForConfigurationSetup(): Promise<boolean> {
 
   const message = `Cloudflare Bindings Explorer is not configured. Missing: ${errors.join(
     ", "
-  )}. Would you like to configure it now?`;
+  )}. Would you like to open secure setup now?`;
 
   const choice = await vscode.window.showInformationMessage(
     message,
-    "Configure Now",
-    "Cancel"
+    "Open Secure Setup",
+    "Later"
   );
 
-  if (choice !== "Configure Now") {
+  if (choice !== "Open Secure Setup") {
     return false;
   }
 
-  // Guide through configuration
-  let endpoint: string | undefined = config.endpointUrl;
-  if (!endpoint) {
-    endpoint = await promptForEndpoint();
-    if (!endpoint) {return false;}
+  const didSave = await openSecureSetupPanel();
+  if (!didSave) {
+    return false;
   }
 
-  let credentials = {
-    accessKeyId: config.accessKeyId,
-    secretAccessKey: config.secretAccessKey,
-  };
-  if (!credentials.accessKeyId || !credentials.secretAccessKey) {
-    const newCredentials = await promptForCredentials();
-    if (!newCredentials) {return false;}
-    credentials = newCredentials;
-  }
-
-  // Update configuration
-  const workspaceConfig = vscode.workspace.getConfiguration("r2");
-  await workspaceConfig.update(
-    "endpointUrl",
-    endpoint,
-    vscode.ConfigurationTarget.Global
-  );
-  // Store credentials securely via OS keyring
-  await storeSecret("r2.accessKeyId", credentials.accessKeyId);
-  // Clear the hardcoded setting if it exists
-  await workspaceConfig.update("accessKeyId", undefined, vscode.ConfigurationTarget.Global);
-  await storeSecret("r2.secretAccessKey", credentials.secretAccessKey);
-  // Clear the hardcoded setting if it exists
-  await workspaceConfig.update("secretAccessKey", undefined, vscode.ConfigurationTarget.Global);
-
-  showInformationMessage("Cloudflare Bindings Explorer has been configured successfully!");
-  return true;
+  const updatedConfig = await getConfig();
+  return validateConfig(updatedConfig).length === 0;
 }
 
 // Validation functions

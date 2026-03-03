@@ -41,18 +41,8 @@
         },
         "r2.region": {
           "type": "string",
-          "default": "us-east-1",
-          "description": "Region string for SigV4 (R2 typically works with 'us-east-1')."
-        },
-        "r2.accessKeyId": {
-          "type": "string",
-          "default": "",
-          "description": "Access Key ID"
-        },
-        "r2.secretAccessKey": {
-          "type": "string",
-          "default": "",
-          "description": "Secret Access Key (legacy setting, use setup wizard for secure storage)"
+          "default": "auto",
+          "description": "Region string for SigV4 (Cloudflare R2 default is 'auto')."
         },
         "r2.forcePathStyle": {
           "type": "boolean",
@@ -90,13 +80,8 @@
       },
       {
         "command": "r2.configure",
-        "title": "Configure S3/R2 Settings",
+        "title": "Update R2 Endpoint & Credentials",
         "icon": "$(gear)"
-      },
-      {
-        "command": "r2.configureWizard",
-        "title": "S3/R2 Setup Wizard",
-        "icon": "$(wand)"
       },
       {
         "command": "r2.createFolder",
@@ -341,9 +326,6 @@
         },
         {
           "command": "r2.configure"
-        },
-        {
-          "command": "r2.configureWizard"
         },
         {
           "command": "r2.refresh",
