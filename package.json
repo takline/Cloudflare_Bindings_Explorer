@@ -84,6 +84,11 @@
         "icon": "$(gear)"
       },
       {
+        "command": "r2.showOutput",
+        "title": "Show Extension Output",
+        "icon": "$(output)"
+      },
+      {
         "command": "r2.createFolder",
         "title": "New Folder",
         "icon": "$(new-folder)"
@@ -326,6 +331,9 @@
         },
         {
           "command": "r2.configure"
+        },
+        {
+          "command": "r2.showOutput"
         },
         {
           "command": "r2.refresh",

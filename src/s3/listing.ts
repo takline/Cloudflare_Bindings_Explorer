@@ -7,6 +7,7 @@ import {
   ListObjectsResult,
   S3Error,
 } from "../types";
+import { logError, logInfo } from "../util/output";
 
 const MAX_KEYS_PER_REQUEST = 1000;
 
@@ -14,11 +15,13 @@ export async function listBuckets(): Promise<S3Bucket[]> {
   return withRetry(async () => {
     try {
       const response = await runS3Action<{ buckets: any[] }>("listBuckets");
+      logInfo(`Loaded ${response.buckets?.length || 0} bucket(s) from endpoint.`);
       return response.buckets.map((bucket: any) => ({
         name: bucket.name,
         creationDate: bucket.creationDate ? new Date(bucket.creationDate) : undefined,
       }));
     } catch (error: any) {
+      logError("Failed to list buckets.", error);
       throw new S3Error(
         `Failed to list buckets: ${error.message}`,
         error.code,
