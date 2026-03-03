@@ -1,16 +1,16 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
-import { getConfig, validateConfig } from "../s3/client";
+import { getConfig } from "../s3/client";
 import { storeSecret } from "../util/secrets";
 
-interface SecureSetupState {
+export interface SecureSetupState {
   endpointUrl: string;
   region: string;
   hasAccessKeyId: boolean;
   hasSecretAccessKey: boolean;
 }
 
-interface SecureSetupPayload {
+export interface SecureSetupPayload {
   endpointUrl: string;
   region: string;
   accessKeyId: string;
@@ -103,17 +103,6 @@ export async function openSecureSetupPanel(): Promise<boolean> {
           await storeSecret("r2.secretAccessKey", payload.secretAccessKey);
         }
 
-        const updatedConfig = await getConfig();
-        const configErrors = validateConfig(updatedConfig);
-        if (configErrors.length > 0) {
-          await panel.webview.postMessage({
-            type: "error",
-            message: configErrors.join(", "),
-          });
-          await panel.webview.postMessage({ type: "saving", value: false });
-          return;
-        }
-
         settle(true);
         panel.dispose();
         vscode.window.showInformationMessage(
@@ -132,7 +121,7 @@ export async function openSecureSetupPanel(): Promise<boolean> {
   });
 }
 
-function normalizePayload(
+export function normalizePayload(
   payload: Partial<SecureSetupPayload> | undefined
 ): SecureSetupPayload {
   return {
@@ -143,7 +132,7 @@ function normalizePayload(
   };
 }
 
-function validateSecureSetupPayload(
+export function validateSecureSetupPayload(
   payload: SecureSetupPayload,
   currentState: SecureSetupState
 ): string | undefined {
