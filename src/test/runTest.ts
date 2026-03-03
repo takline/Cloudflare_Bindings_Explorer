@@ -3,7 +3,7 @@ import { runTests } from "@vscode/test-electron";
 
 async function main() {
   try {
-    process.env.S3X_TEST_MODE = "1";
+    process.env.R2_TEST_MODE = "1";
 
     // The folder containing the Extension Manifest package.json
     // Passed to `--extensionDevelopmentPath`

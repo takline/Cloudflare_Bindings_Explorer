@@ -4,7 +4,7 @@ import * as fs from "node:fs";
 
 let cliPath: string | null = null;
 
-export function initOpenDalClient(extensionPath: string): void {
+export function initBindingsCliClient(extensionPath: string): void {
   const releasePath = path.join(
     extensionPath,
     "src-rust",
@@ -72,8 +72,4 @@ export async function runBindingsCli(action: unknown): Promise<any> {
       child.stdin.end();
     }
   });
-}
-
-export async function runOpenDal(action: any): Promise<any> {
-  return runBindingsCli(action);
 }

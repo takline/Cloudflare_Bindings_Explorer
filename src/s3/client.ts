@@ -1,4 +1,4 @@
-import { runS3Action } from "./bun-client";
+import { runS3Action } from "./bindings-client";
 import * as vscode from "vscode";
 import { S3Config, S3Error } from "../types";
 
@@ -7,13 +7,13 @@ let cachedConfig: S3Config | null = null;
 import { getSecret } from "../util/secrets";
 
 export async function getConfig(): Promise<S3Config> {
-  const config = vscode.workspace.getConfiguration("s3x");
+  const config = vscode.workspace.getConfiguration("r2");
 
   return {
     endpointUrl: config.get<string>("endpointUrl", ""),
     region: config.get<string>("region", "us-east-1"),
-    accessKeyId: (await getSecret("s3x.accessKeyId")) || config.get<string>("accessKeyId", ""), // Fallback to settings
-    secretAccessKey: (await getSecret("s3x.secretAccessKey")) || config.get<string>("secretAccessKey", ""), // Fallback to settings
+    accessKeyId: (await getSecret("r2.accessKeyId")) || config.get<string>("accessKeyId", ""), // Fallback to settings
+    secretAccessKey: (await getSecret("r2.secretAccessKey")) || config.get<string>("secretAccessKey", ""), // Fallback to settings
     forcePathStyle: config.get<boolean>("forcePathStyle", true),
     maxPreviewSizeBytes: config.get<number>("maxPreviewSizeBytes", 10485760),
   };

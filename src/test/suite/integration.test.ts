@@ -58,7 +58,7 @@ describe("R2 Integration Tests", () => {
     try {
       // Clean up any test objects that might have been left behind
       // We use a specific prefix to ensure we only delete our test objects
-      const testPrefix = "s3x-test-";
+      const testPrefix = "r2-test-";
       console.log(
         `Cleaning up test objects with prefix "${testPrefix}" in bucket "${testBucketName}"`
       );
@@ -106,7 +106,7 @@ describe("R2 Integration Tests", () => {
       return;
     }
 
-    const testKey = generateTestObjectKey("s3x-test-crud");
+    const testKey = generateTestObjectKey("r2-test-crud");
     const testContent = `Test content created at ${new Date().toISOString()}\nThis is a test object for the Cloudflare Bindings Explorer extension.`;
     const testContentBytes = new TextEncoder().encode(testContent);
 
@@ -165,7 +165,7 @@ describe("R2 Integration Tests", () => {
       return;
     }
 
-    const folderPrefix = `s3x-test-folder-${Date.now()}/`;
+    const folderPrefix = `r2-test-folder-${Date.now()}/`;
     const testObjectKey = folderPrefix + "test-file.txt";
 
     try {
@@ -205,7 +205,7 @@ describe("R2 Integration Tests", () => {
       return;
     }
 
-    const testKey = generateTestObjectKey("s3x-test-presign");
+    const testKey = generateTestObjectKey("r2-test-presign");
     const testContent = "Content for presigned URL test";
 
     try {
@@ -292,7 +292,7 @@ describe("R2 Integration Tests", () => {
     }
 
     // Test with non-existent object
-    const nonExistentKey = "s3x-test-nonexistent-" + Date.now();
+    const nonExistentKey = "r2-test-nonexistent-" + Date.now();
 
     try {
       await getObject(testBucketName, nonExistentKey);

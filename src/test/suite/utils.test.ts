@@ -7,8 +7,8 @@ import {
   isFolder,
   ensureTrailingSlash,
   removeTrailingSlash,
-  createS3xUri,
-  parseS3xUri,
+  createR2Uri,
+  parseR2Uri,
   isChildOf,
   getRelativePath,
   getPathSegments,
@@ -78,36 +78,36 @@ describe("Path Utilities Tests", () => {
     assert.strictEqual(removeTrailingSlash("/"), "");
   });
 
-  it("createS3xUri should create valid URIs", () => {
-    assert.strictEqual(createS3xUri("bucket"), "s3x://bucket/");
+  it("createR2Uri should create valid URIs", () => {
+    assert.strictEqual(createR2Uri("bucket"), "r2://bucket/");
     assert.strictEqual(
-      createS3xUri("bucket", "file.txt"),
-      "s3x://bucket/file.txt"
+      createR2Uri("bucket", "file.txt"),
+      "r2://bucket/file.txt"
     );
     assert.strictEqual(
-      createS3xUri("bucket", "/file.txt"),
-      "s3x://bucket/file.txt"
+      createR2Uri("bucket", "/file.txt"),
+      "r2://bucket/file.txt"
     );
     assert.strictEqual(
-      createS3xUri("bucket", "folder/file.txt"),
-      "s3x://bucket/folder/file.txt"
+      createR2Uri("bucket", "folder/file.txt"),
+      "r2://bucket/folder/file.txt"
     );
   });
 
-  it("parseS3xUri should parse URIs correctly", () => {
-    const result1 = parseS3xUri("s3x://bucket/file.txt");
+  it("parseR2Uri should parse URIs correctly", () => {
+    const result1 = parseR2Uri("r2://bucket/file.txt");
     assert.strictEqual(result1.bucket, "bucket");
     assert.strictEqual(result1.key, "file.txt");
 
-    const result2 = parseS3xUri("s3x://bucket/folder/file.txt");
+    const result2 = parseR2Uri("r2://bucket/folder/file.txt");
     assert.strictEqual(result2.bucket, "bucket");
     assert.strictEqual(result2.key, "folder/file.txt");
 
-    const result3 = parseS3xUri("s3x://bucket/");
+    const result3 = parseR2Uri("r2://bucket/");
     assert.strictEqual(result3.bucket, "bucket");
     assert.strictEqual(result3.key, "");
 
-    assert.throws(() => parseS3xUri("invalid-uri"), /Invalid S3X URI/);
+    assert.throws(() => parseR2Uri("invalid-uri"), /Invalid R2 URI/);
   });
 
   it("isChildOf should detect parent-child relationships", () => {

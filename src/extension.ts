@@ -4,9 +4,7 @@ import * as vscode from "vscode";
 import { S3Explorer } from "./tree/explorer";
 import { LocalWranglerExplorer } from "./tree/localWranglerExplorer";
 import { S3FileSystemProvider } from "./fs/provider";
-import { initLocalWranglerClient } from "./local-wrangler/client";
-import { initBunS3Client } from "./s3/bun-client";
-import { initOpenDalClient } from "./opendal/client";
+import { initBindingsCliClient } from "./bindings/client";
 import { SqliteVisualEditor } from "./sqlite/SqliteVisualEditor";
 import {
   addManualSqliteDatabase,
@@ -84,24 +82,22 @@ export async function activate(context: vscode.ExtensionContext) {
   // Initialize providers
   s3Explorer = new S3Explorer();
   s3FileSystemProvider = new S3FileSystemProvider();
-  initLocalWranglerClient(context.extensionPath);
-  initBunS3Client(context.extensionPath);
-  initOpenDalClient(context.extensionPath);
+  initBindingsCliClient(context.extensionPath);
   localWranglerExplorer = new LocalWranglerExplorer(context.workspaceState);
 
   // Register Email Viewer
   context.subscriptions.push(MailViewer.register(context));
   context.subscriptions.push(SqliteVisualEditor.register(context));
 
-  // Register FileSystem provider for s3x:// scheme
+  // Register FileSystem provider for r2:// scheme
   const fsProviderDisposable = vscode.workspace.registerFileSystemProvider(
-    "s3x",
+    "r2",
     s3FileSystemProvider
   );
   context.subscriptions.push(fsProviderDisposable);
 
   // Register TreeDataProvider
-  const treeViewDisposable = vscode.window.createTreeView("s3xExplorer", {
+  const treeViewDisposable = vscode.window.createTreeView("r2Explorer", {
     treeDataProvider: s3Explorer,
     dragAndDropController: s3Explorer,
     canSelectMany: true,
@@ -147,7 +143,7 @@ export function deactivate() {
 function registerCommands(context: vscode.ExtensionContext) {
   // Core commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.refresh", async (node) => {
+    vscode.commands.registerCommand("r2.refresh", async (node) => {
       try {
         s3Explorer.refresh(node);
       } catch (error) {
@@ -160,18 +156,18 @@ function registerCommands(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.configure", async () => {
-      // Open VS Code settings page to S3X section
+    vscode.commands.registerCommand("r2.configure", async () => {
+      // Open VS Code settings page to R2 section
       await vscode.commands.executeCommand(
         "workbench.action.openSettings",
-        "s3x"
+        "r2"
       );
     })
   );
 
   context.subscriptions.push(
     vscode.commands.registerCommand(
-      "s3x.loadMore",
+      "r2.loadMore",
       async (node: LoadMoreNode) => {
         if (isLoadMoreNode(node)) {
           await s3Explorer.loadMore(node);
@@ -182,74 +178,74 @@ function registerCommands(context: vscode.ExtensionContext) {
 
   // CRUD commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.createFolder", async (node) => {
+    vscode.commands.registerCommand("r2.createFolder", async (node) => {
       await handleCreateFolder(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.uploadFile", async (node) => {
+    vscode.commands.registerCommand("r2.uploadFile", async (node) => {
       await handleUploadFile(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.uploadFolder", async (node) => {
+    vscode.commands.registerCommand("r2.uploadFolder", async (node) => {
       await handleUploadFolder(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.download", async (node) => {
+    vscode.commands.registerCommand("r2.download", async (node) => {
       await handleDownload(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.rename", async (node) => {
+    vscode.commands.registerCommand("r2.rename", async (node) => {
       await handleRename(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.delete", async (node) => {
+    vscode.commands.registerCommand("r2.delete", async (node) => {
       await handleDelete(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.copy", async (node) => {
+    vscode.commands.registerCommand("r2.copy", async (node) => {
       await handleCopy(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.move", async (node) => {
+    vscode.commands.registerCommand("r2.move", async (node) => {
       await handleMove(node);
     })
   );
 
   // Utility commands
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.presign", async (node) => {
+    vscode.commands.registerCommand("r2.presign", async (node) => {
       await handleGeneratePresignedUrl(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.search", async () => {
+    vscode.commands.registerCommand("r2.search", async () => {
       await handleSearch();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.showMetadata", async (node) => {
+    vscode.commands.registerCommand("r2.showMetadata", async (node) => {
       await handleShowMetadata(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.previewMedia", async (node) => {
+    vscode.commands.registerCommand("r2.previewMedia", async (node) => {
       // Handle both direct calls with parameters and context menu calls with nodes
       if (node && isObjectNode(node)) {
         await handlePreviewMedia({
@@ -264,13 +260,13 @@ function registerCommands(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.openFile", async (node) => {
+    vscode.commands.registerCommand("r2.openFile", async (node) => {
       await handleOpenFile(node);
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.reauth", async () => {
+    vscode.commands.registerCommand("r2.reauth", async () => {
       clearClientCache();
       await promptForConfigurationSetup();
       s3Explorer.refresh();
@@ -278,20 +274,20 @@ function registerCommands(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.configureWizard", async () => {
+    vscode.commands.registerCommand("r2.configureWizard", async () => {
       await promptForConfigurationSetup();
       s3Explorer.refresh();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.smokeTest", async () => {
+    vscode.commands.registerCommand("r2.smokeTest", async () => {
       await handleSmokeTest();
     })
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand("s3x.refreshAll", async () => {
+    vscode.commands.registerCommand("r2.refreshAll", async () => {
       // Force complete refresh - clear all caches and reload from scratch
       console.log("Force refreshing all S3 data...");
       s3Cache.invalidateAll();
@@ -686,7 +682,7 @@ async function handleSearch() {
 
         if (selected) {
           const uri = vscode.Uri.parse(
-            `s3x://${bucket}/${selected.description}`
+            `r2://${bucket}/${selected.description}`
           );
           await vscode.commands.executeCommand("vscode.open", uri);
         }
@@ -791,7 +787,7 @@ async function handleSmokeTest() {
         progress.report({ message: "Creating test object...", increment: 25 });
 
         // Create a test object
-        const testKey = `_s3x_test_${Date.now()}.txt`;
+        const testKey = `_r2_test_${Date.now()}.txt`;
         const testContent = `Cloudflare Bindings Explorer smoke test\nTimestamp: ${new Date().toISOString()}`;
 
         await createFolder(testBucket, "test-folder/");
@@ -1088,7 +1084,7 @@ async function handlePreviewMedia(params: any) {
 
     // Create and show webview
     const panel = vscode.window.createWebviewPanel(
-      "s3xMediaPreview",
+      "r2MediaPreview",
       `Preview: ${getFileName(key)}`,
       vscode.ViewColumn.One,
       {

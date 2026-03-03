@@ -31,8 +31,8 @@ export class S3Explorer
   > = this._onDidChangeTreeData.event;
 
   // Drag and drop support
-  dropMimeTypes = ["application/vnd.code.tree.s3xExplorer"];
-  dragMimeTypes = ["text/uri-list", "application/vnd.code.tree.s3xExplorer"];
+  dropMimeTypes = ["application/vnd.code.tree.r2Explorer"];
+  dragMimeTypes = ["text/uri-list", "application/vnd.code.tree.r2Explorer"];
 
   constructor() {}
 
@@ -124,7 +124,7 @@ export class S3Explorer
           )
           .then((selection) => {
             if (selection === "Update Credentials") {
-              vscode.commands.executeCommand("s3x.configure");
+              vscode.commands.executeCommand("r2.configure");
             }
           });
       } else {
@@ -306,7 +306,7 @@ export class S3Explorer
 
     // Store the source nodes for internal drag/drop
     treeDataTransfer.set(
-      "application/vnd.code.tree.s3xExplorer",
+      "application/vnd.code.tree.r2Explorer",
       new vscode.DataTransferItem(items)
     );
 
@@ -336,7 +336,7 @@ export class S3Explorer
 
     // Handle internal drag/drop
     const internalDropData = sources.get(
-      "application/vnd.code.tree.s3xExplorer"
+      "application/vnd.code.tree.r2Explorer"
     );
     if (internalDropData) {
       await this.handleInternalDrop(target, internalDropData.value);

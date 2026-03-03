@@ -14,18 +14,18 @@ export interface TestConfig {
  */
 export function getTestConfig(): TestConfig {
   return {
-    endpointUrl: process.env.S3X_ENDPOINT_URL || "",
-    accessKeyId: process.env.S3X_ACCESS_KEY_ID || "",
-    secretAccessKey: process.env.S3X_SECRET_ACCESS_KEY || "",
-    region: process.env.S3X_REGION || "us-east-1",
-    testBucketPrefix: "s3x-test-ci",
+    endpointUrl: process.env.R2_ENDPOINT_URL || "",
+    accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
+    region: process.env.R2_REGION || "us-east-1",
+    testBucketPrefix: "r2-test-ci",
   };
 }
 
 /**
  * Generate a unique test bucket name that won't conflict with existing buckets
  */
-export function generateTestBucketName(prefix: string = "s3x-test"): string {
+export function generateTestBucketName(prefix: string = "r2-test"): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).substring(2, 8);
   return `${prefix}-${timestamp}-${random}`.toLowerCase();
@@ -100,7 +100,7 @@ export function setupTestEnvironment(): TestConfig {
   // Mock vscode.workspace.getConfiguration
   const originalGetConfiguration = vscode.workspace.getConfiguration;
   (vscode.workspace as any).getConfiguration = (section?: string) => {
-    if (section === "s3x") {
+    if (section === "r2") {
       return new MockWorkspaceConfiguration(testConfig);
     }
     return originalGetConfiguration(section);

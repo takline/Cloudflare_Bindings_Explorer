@@ -333,7 +333,7 @@ export async function promptForEndpoint(): Promise<string | undefined> {
 }
 
 export async function promptForConfigurationSetup(): Promise<boolean> {
-  if (process.env.S3X_TEST_MODE === "1") {
+  if (process.env.R2_TEST_MODE === "1") {
     return false;
   }
 
@@ -376,17 +376,17 @@ export async function promptForConfigurationSetup(): Promise<boolean> {
   }
 
   // Update configuration
-  const workspaceConfig = vscode.workspace.getConfiguration("s3x");
+  const workspaceConfig = vscode.workspace.getConfiguration("r2");
   await workspaceConfig.update(
     "endpointUrl",
     endpoint,
     vscode.ConfigurationTarget.Global
   );
   // Store credentials securely via Bun.secrets
-  await storeSecret("s3x.accessKeyId", credentials.accessKeyId);
+  await storeSecret("r2.accessKeyId", credentials.accessKeyId);
   // Clear the hardcoded setting if it exists
   await workspaceConfig.update("accessKeyId", undefined, vscode.ConfigurationTarget.Global);
-  await storeSecret("s3x.secretAccessKey", credentials.secretAccessKey);
+  await storeSecret("r2.secretAccessKey", credentials.secretAccessKey);
   // Clear the hardcoded setting if it exists
   await workspaceConfig.update("secretAccessKey", undefined, vscode.ConfigurationTarget.Global);
 

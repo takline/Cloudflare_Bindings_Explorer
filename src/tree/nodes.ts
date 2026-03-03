@@ -7,7 +7,7 @@ import {
   getPrefixDisplayName,
 } from "../s3/listing";
 import {
-  createS3xUri,
+  createR2Uri,
   getFileName,
   isTextFile,
   isImageFile,
@@ -82,11 +82,11 @@ export class ObjectNode extends BaseTreeNode {
 
     this.contextValue = "object";
     this.iconPath = this.getIconForObject(object.key);
-    this.resourceUri = vscode.Uri.parse(createS3xUri(bucket, object.key));
+    this.resourceUri = vscode.Uri.parse(createR2Uri(bucket, object.key));
 
     // Set up command to open the object when clicked
     this.command = {
-      command: "s3x.openFile",
+      command: "r2.openFile",
       title: "Open",
       arguments: [this],
     };
@@ -201,7 +201,7 @@ export class LoadMoreNode extends BaseTreeNode {
 
     // Set up command to load more items
     this.command = {
-      command: "s3x.loadMore",
+      command: "r2.loadMore",
       title: "Load More",
       arguments: [this],
     };

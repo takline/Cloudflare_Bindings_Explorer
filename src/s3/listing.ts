@@ -1,5 +1,5 @@
 import { withRetry } from "./client";
-import { runS3Action } from "./bun-client";
+import { runS3Action } from "./bindings-client";
 import {
   S3Bucket,
   S3Object,

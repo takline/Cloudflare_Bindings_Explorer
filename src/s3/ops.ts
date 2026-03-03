@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { withRetry, getConfig } from "./client";
-import { runS3Action } from "./bun-client";
+import { runS3Action } from "./bindings-client";
 import {
   S3ObjectMetadata,
   S3Error,
@@ -240,7 +240,7 @@ async function uploadFileMultipart(
   filePath: string,
   onProgress?: (progress: number) => void
 ): Promise<void> {
-  // Bun handles large files efficiently natively, we just pass the path
+  // The bindings CLI handles the file read/write path for large uploads.
   if (onProgress) onProgress(10);
   await runS3Action("putObject", { bucket, key, filePath, contentType: guessContentType(key) });
   if (onProgress) onProgress(100);

@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "s3x-explorer",
+      "name": "r2-explorer",
       "dependencies": {
         "postal-mime": "^2.7.3",
         "sql.js": "^1.14.0",

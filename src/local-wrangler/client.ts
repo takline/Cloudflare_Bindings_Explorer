@@ -1,4 +1,4 @@
-import { runBindingsCli } from "../opendal/client";
+import { runBindingsCli } from "../bindings/client";
 import {
   D1DatabaseInfo,
   D1RowsResult,
@@ -15,10 +15,6 @@ export class LocalWranglerRuntimeNotFoundError extends Error {
     super("Bindings CLI runtime not found");
     this.name = "LocalWranglerRuntimeNotFoundError";
   }
-}
-
-export function initLocalWranglerClient(_extensionPath: string): void {
-  // CLI is initialized in extension.ts via initOpenDalClient.
 }
 
 function mapCliError(error: unknown): never {
