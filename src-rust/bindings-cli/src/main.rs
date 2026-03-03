@@ -715,7 +715,9 @@ fn list_wrangler_roots(roots: &[String]) -> Vec<String> {
             let entry_path = entry.path();
 
             if name.starts_with(".wrangler") || name.starts_with("wrangler") {
-                found.insert(entry_path.to_string_lossy().to_string());
+                if wrangler_dir_has_storage_data(&entry_path) {
+                    found.insert(entry_path.to_string_lossy().to_string());
+                }
                 continue;
             }
 
@@ -744,13 +746,13 @@ fn list_storage_types(wrangler_dir: &str) -> WranglerStorageTypesResult {
     let state_path = resolve_state_path(wrangler_dir);
     let mut types = Vec::new();
 
-    if state_path.join("kv").exists() {
+    if wrangler_storage_type_has_data(Path::new(wrangler_dir), "kv") {
         types.push(String::from("kv"));
     }
-    if state_path.join("d1").exists() {
+    if wrangler_storage_type_has_data(Path::new(wrangler_dir), "d1") {
         types.push(String::from("d1"));
     }
-    if state_path.join("r2").exists() {
+    if wrangler_storage_type_has_data(Path::new(wrangler_dir), "r2") {
         types.push(String::from("r2"));
     }
 
@@ -758,6 +760,47 @@ fn list_storage_types(wrangler_dir: &str) -> WranglerStorageTypesResult {
         state_path: state_path.to_string_lossy().to_string(),
         types,
     }
+}
+
+fn directory_has_file_recursive(dir: &Path) -> bool {
+    if !dir.exists() {
+        return false;
+    }
+
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(current) = stack.pop() {
+        for entry in safe_read_dir(&current) {
+            let file_type = match entry.file_type() {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            if file_type.is_symlink() {
+                continue;
+            }
+
+            if file_type.is_file() {
+                return true;
+            }
+
+            if file_type.is_dir() {
+                stack.push(entry.path());
+            }
+        }
+    }
+
+    false
+}
+
+fn wrangler_storage_type_has_data(wrangler_dir: &Path, storage_type: &str) -> bool {
+    let storage_root = wrangler_dir.join("state").join("v3").join(storage_type);
+    directory_has_file_recursive(&storage_root)
+}
+
+fn wrangler_dir_has_storage_data(wrangler_dir: &Path) -> bool {
+    ["kv", "d1", "r2"]
+        .iter()
+        .any(|storage_type| wrangler_storage_type_has_data(wrangler_dir, storage_type))
 }
 
 const KEYRING_SERVICE: &str = "cloudflare-bindings-explorer";
@@ -1185,7 +1228,7 @@ async fn list_d1_rows(sqlite_path: &str, table: &str) -> anyhow::Result<D1RowsRe
 
 #[cfg(test)]
 mod tests {
-    use super::list_wrangler_roots;
+    use super::{list_storage_types, list_wrangler_roots};
     use std::fs;
     use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1204,26 +1247,36 @@ mod tests {
         fs::create_dir_all(path.join(relative)).expect("failed to create test directory");
     }
 
+    fn create_file(path: &Path, relative: &str, content: &str) {
+        let file_path = path.join(relative);
+        if let Some(parent) = file_path.parent() {
+            fs::create_dir_all(parent).expect("failed to create parent directories");
+        }
+        fs::write(file_path, content).expect("failed to write test file");
+    }
+
     #[test]
-    fn list_wrangler_roots_includes_dot_wrangler_and_wrangler_prefixes() {
+    fn list_wrangler_roots_only_includes_candidates_with_storage_files() {
         let root = new_temp_root();
         let root_path = Path::new(&root);
 
         create_dir(root_path, ".wrangler");
-        create_dir(root_path, ".wrangler-state");
-        create_dir(root_path, "wrangler");
+        create_file(
+            root_path,
+            ".wrangler-state/state/v3/r2/demo-bucket/blobs/blob.bin",
+            "r2-data",
+        );
+        create_file(
+            root_path,
+            "wrangler/state/v3/d1/miniflare-D1DatabaseObject/demo.sqlite",
+            "d1-data",
+        );
         create_dir(root_path, "wrangler-cache");
         create_dir(root_path, "something-else");
 
         let found = list_wrangler_roots(&[root.clone()]);
         let found_set = found.into_iter().collect::<std::collections::BTreeSet<_>>();
 
-        assert!(found_set.contains(
-            &root_path
-                .join(".wrangler")
-                .to_string_lossy()
-                .to_string()
-        ));
         assert!(found_set.contains(
             &root_path
                 .join(".wrangler-state")
@@ -1236,7 +1289,13 @@ mod tests {
                 .to_string_lossy()
                 .to_string()
         ));
-        assert!(found_set.contains(
+        assert!(!found_set.contains(
+            &root_path
+                .join(".wrangler")
+                .to_string_lossy()
+                .to_string()
+        ));
+        assert!(!found_set.contains(
             &root_path
                 .join("wrangler-cache")
                 .to_string_lossy()
@@ -1248,6 +1307,31 @@ mod tests {
                 .to_string_lossy()
                 .to_string()
         ));
+
+        fs::remove_dir_all(root_path).expect("failed to remove temp directory");
+    }
+
+    #[test]
+    fn list_storage_types_only_reports_types_with_real_files() {
+        let root = new_temp_root();
+        let root_path = Path::new(&root);
+
+        create_dir(root_path, ".wrangler-state/state/v3/kv/miniflare-KVNamespaceObject");
+        create_file(
+            root_path,
+            ".wrangler-state/state/v3/d1/miniflare-D1DatabaseObject/demo.sqlite",
+            "d1-data",
+        );
+        create_file(
+            root_path,
+            ".wrangler-state/state/v3/r2/demo-bucket/blobs/blob.bin",
+            "r2-data",
+        );
+
+        let wrangler_root = root_path.join(".wrangler-state");
+        let result = list_storage_types(wrangler_root.to_string_lossy().as_ref());
+
+        assert_eq!(result.types, vec!["d1".to_string(), "r2".to_string()]);
 
         fs::remove_dir_all(root_path).expect("failed to remove temp directory");
     }
