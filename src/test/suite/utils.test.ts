@@ -21,8 +21,8 @@ import {
   sanitizeS3Key,
 } from "../../util/paths";
 
-suite("Path Utilities Tests", () => {
-  test("normalizeKey should remove leading slashes", () => {
+describe("Path Utilities Tests", () => {
+  it("normalizeKey should remove leading slashes", () => {
     assert.strictEqual(normalizeKey("key"), "key");
     assert.strictEqual(normalizeKey("/key"), "key");
     assert.strictEqual(normalizeKey("//key"), "/key");
@@ -30,7 +30,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(normalizeKey("/folder/file.txt"), "folder/file.txt");
   });
 
-  test("joinPath should join path segments correctly", () => {
+  it("joinPath should join path segments correctly", () => {
     assert.strictEqual(joinPath("folder", "file.txt"), "folder/file.txt");
     assert.strictEqual(joinPath("folder/", "file.txt"), "folder/file.txt");
     assert.strictEqual(joinPath("folder", "/file.txt"), "folder/file.txt");
@@ -40,7 +40,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(joinPath("a", "b", "c"), "a/b/c");
   });
 
-  test("getParentPrefix should return parent path", () => {
+  it("getParentPrefix should return parent path", () => {
     assert.strictEqual(getParentPrefix("folder/file.txt"), "folder/");
     assert.strictEqual(
       getParentPrefix("folder/subfolder/file.txt"),
@@ -51,7 +51,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(getParentPrefix("/folder/file.txt"), "folder/");
   });
 
-  test("getFileName should extract filename", () => {
+  it("getFileName should extract filename", () => {
     assert.strictEqual(getFileName("file.txt"), "file.txt");
     assert.strictEqual(getFileName("folder/file.txt"), "file.txt");
     assert.strictEqual(getFileName("folder/subfolder/file.txt"), "file.txt");
@@ -59,26 +59,26 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(getFileName("folder/"), "");
   });
 
-  test("isFolder should detect folders", () => {
+  it("isFolder should detect folders", () => {
     assert.strictEqual(isFolder("folder/"), true);
     assert.strictEqual(isFolder("folder/subfolder/"), true);
     assert.strictEqual(isFolder("file.txt"), false);
     assert.strictEqual(isFolder("folder/file.txt"), false);
   });
 
-  test("ensureTrailingSlash should add slash if missing", () => {
+  it("ensureTrailingSlash should add slash if missing", () => {
     assert.strictEqual(ensureTrailingSlash("folder"), "folder/");
     assert.strictEqual(ensureTrailingSlash("folder/"), "folder/");
     assert.strictEqual(ensureTrailingSlash(""), "/");
   });
 
-  test("removeTrailingSlash should remove slash if present", () => {
+  it("removeTrailingSlash should remove slash if present", () => {
     assert.strictEqual(removeTrailingSlash("folder/"), "folder");
     assert.strictEqual(removeTrailingSlash("folder"), "folder");
     assert.strictEqual(removeTrailingSlash("/"), "");
   });
 
-  test("createS3xUri should create valid URIs", () => {
+  it("createS3xUri should create valid URIs", () => {
     assert.strictEqual(createS3xUri("bucket"), "s3x://bucket/");
     assert.strictEqual(
       createS3xUri("bucket", "file.txt"),
@@ -94,7 +94,7 @@ suite("Path Utilities Tests", () => {
     );
   });
 
-  test("parseS3xUri should parse URIs correctly", () => {
+  it("parseS3xUri should parse URIs correctly", () => {
     const result1 = parseS3xUri("s3x://bucket/file.txt");
     assert.strictEqual(result1.bucket, "bucket");
     assert.strictEqual(result1.key, "file.txt");
@@ -110,7 +110,7 @@ suite("Path Utilities Tests", () => {
     assert.throws(() => parseS3xUri("invalid-uri"), /Invalid S3X URI/);
   });
 
-  test("isChildOf should detect parent-child relationships", () => {
+  it("isChildOf should detect parent-child relationships", () => {
     assert.strictEqual(isChildOf("folder/file.txt", "folder"), true);
     assert.strictEqual(isChildOf("folder/subfolder/file.txt", "folder"), true);
     assert.strictEqual(isChildOf("file.txt", ""), true);
@@ -118,7 +118,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(isChildOf("file.txt", "folder"), false);
   });
 
-  test("getRelativePath should return relative paths", () => {
+  it("getRelativePath should return relative paths", () => {
     assert.strictEqual(
       getRelativePath("folder/file.txt", "folder"),
       "file.txt"
@@ -134,7 +134,7 @@ suite("Path Utilities Tests", () => {
     );
   });
 
-  test("getPathSegments should split paths correctly", () => {
+  it("getPathSegments should split paths correctly", () => {
     assert.deepStrictEqual(getPathSegments("folder/file.txt"), [
       "folder",
       "file.txt",
@@ -152,14 +152,14 @@ suite("Path Utilities Tests", () => {
     ]);
   });
 
-  test("getPathDepth should return correct depth", () => {
+  it("getPathDepth should return correct depth", () => {
     assert.strictEqual(getPathDepth("file.txt"), 1);
     assert.strictEqual(getPathDepth("folder/file.txt"), 2);
     assert.strictEqual(getPathDepth("folder/subfolder/file.txt"), 3);
     assert.strictEqual(getPathDepth(""), 0);
   });
 
-  test("generateUniqueKey should create unique names", () => {
+  it("generateUniqueKey should create unique names", () => {
     const existingKeys = ["file.txt", "file (1).txt"];
     const uniqueKey = generateUniqueKey("file.txt", existingKeys);
     assert.strictEqual(uniqueKey, "file (2).txt");
@@ -174,7 +174,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(uniqueKey3, "new-file.txt");
   });
 
-  test("getFileExtension should extract extensions", () => {
+  it("getFileExtension should extract extensions", () => {
     assert.strictEqual(getFileExtension("file.txt"), "txt");
     assert.strictEqual(getFileExtension("document.pdf"), "pdf");
     assert.strictEqual(getFileExtension("archive.tar.gz"), "gz");
@@ -184,7 +184,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(getFileExtension("file."), "");
   });
 
-  test("isTextFile should identify text files", () => {
+  it("isTextFile should identify text files", () => {
     assert.strictEqual(isTextFile("document.txt"), true);
     assert.strictEqual(isTextFile("script.js"), true);
     assert.strictEqual(isTextFile("style.css"), true);
@@ -196,7 +196,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(isTextFile("unknown"), false);
   });
 
-  test("isImageFile should identify image files", () => {
+  it("isImageFile should identify image files", () => {
     assert.strictEqual(isImageFile("photo.jpg"), true);
     assert.strictEqual(isImageFile("image.png"), true);
     assert.strictEqual(isImageFile("icon.gif"), true);
@@ -206,7 +206,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(isImageFile("unknown"), false);
   });
 
-  test("isValidS3Key should validate S3 keys", () => {
+  it("isValidS3Key should validate S3 keys", () => {
     assert.strictEqual(isValidS3Key("valid-key.txt"), true);
     assert.strictEqual(isValidS3Key("folder/file.txt"), true);
     assert.strictEqual(isValidS3Key("folder/"), true);
@@ -225,7 +225,7 @@ suite("Path Utilities Tests", () => {
     assert.strictEqual(isValidS3Key(longKey), false);
   });
 
-  test("sanitizeS3Key should fix invalid keys", () => {
+  it("sanitizeS3Key should fix invalid keys", () => {
     assert.strictEqual(sanitizeS3Key("valid-key.txt"), "valid-key.txt");
     assert.strictEqual(
       sanitizeS3Key("/leading-slash.txt"),

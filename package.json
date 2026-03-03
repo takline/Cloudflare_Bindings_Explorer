@@ -5,7 +5,7 @@
   "version": "1.0.9",
   "publisher": "takline",
   "license": "MIT",
-  "icon": "logo.png",
+  "icon": "images/logo/dark.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/takline/Cloudflare-Bindings-Explorer.git"
@@ -52,7 +52,7 @@
         "s3x.secretAccessKey": {
           "type": "string",
           "default": "",
-          "description": "Secret Access Key (stored in settings.json as requested)"
+          "description": "Secret Access Key (legacy setting, use setup wizard for secure storage)"
         },
         "s3x.forcePathStyle": {
           "type": "boolean",
@@ -387,22 +387,21 @@
     ]
   },
   "scripts": {
-    "clean": "node -e \"const fs=require('fs'); for (const p of ['out','dist']) { fs.rmSync(p,{recursive:true,force:true}); } for (const f of fs.readdirSync('.')) { if (f.endsWith('.vsix')) fs.rmSync(f); }\"",
+    "clean": "bun -e \"import { rmSync, readdirSync } from 'fs'; for (const p of ['out','dist']) { rmSync(p,{recursive:true,force:true}); } for (const f of readdirSync('.')) { if (f.endsWith('.vsix')) rmSync(f); }\"",
     "typecheck": "tsc --noEmit",
-    "vscode:prepublish": "npm run clean && npm run esbuild-base -- --minify",
-    "esbuild-base": "node esbuild.js",
-    "esbuild": "npm run esbuild-base -- --sourcemap",
-    "esbuild-watch": "npm run esbuild-base -- --sourcemap --watch",
-    "compile": "npm run esbuild",
-    "watch": "npm run esbuild-watch",
-    "pretest": "npm run compile && npm run lint && npm run typecheck",
+    "vscode:prepublish": "bun run clean && bun run build:cli && bun run build --production",
+    "compile": "bun run build:cli && bun run build --sourcemap",
+    "watch": "bun run compile && bun run build --sourcemap --watch",
+    "pretest": "bun run compile && bun run lint && bun run typecheck",
     "lint": "eslint src",
-    "test": "node ./out/test/runTest.js",
-    "test:unit": "npm run compile && mocha --ui tdd out/test/suite/utils-only.test.js",
-    "package": "npm run clean && npm run esbuild-base -- --minify && vsce package",
-    "package:prerelease": "npm run clean && npm run compile && vsce package --pre-release",
-    "publish": "npm run clean && npm run compile && vsce publish --no-dependencies",
-    "publish:prerelease": "npm run clean && npm run compile && vsce publish --pre-release --no-dependencies"
+    "test": "bun ./out/test/runTest.js",
+    "test:unit": "bun run compile && bun x mocha --ui tdd out/test/suite/utils-only.test.js",
+    "package": "bun run clean && bun run build:cli && bun run build --production && vsce package",
+    "package:prerelease": "bun run clean && bun run compile && vsce package --pre-release",
+    "publish": "bun run clean && bun run compile && vsce publish --no-dependencies",
+    "publish:prerelease": "bun run clean && bun run compile && vsce publish --pre-release --no-dependencies",
+    "build:cli": "cd src-rust/bindings-cli && cargo build --release",
+    "build": "bun build.ts"
   },
   "devDependencies": {
     "@types/bun": "^1.3.9",
@@ -415,7 +414,6 @@
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.6.0",
     "audit-ci": "^6.6.1",
-    "esbuild": "^0.25.8",
     "eslint": "^8.28.0",
     "mocha": "^10.8.2",
     "nyc": "^15.1.0",
@@ -424,8 +422,6 @@
     "wrangler": "^4.69.0"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.856.0",
-    "@aws-sdk/s3-request-presigner": "^3.856.0",
     "postal-mime": "^2.7.3",
     "sql.js": "^1.14.0"
   }

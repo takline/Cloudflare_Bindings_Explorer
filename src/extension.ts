@@ -5,6 +5,8 @@ import { S3Explorer } from "./tree/explorer";
 import { LocalWranglerExplorer } from "./tree/localWranglerExplorer";
 import { S3FileSystemProvider } from "./fs/provider";
 import { initLocalWranglerClient } from "./local-wrangler/client";
+import { initBunS3Client } from "./s3/bun-client";
+import { initOpenDalClient } from "./opendal/client";
 import { SqliteVisualEditor } from "./sqlite/SqliteVisualEditor";
 import {
   addManualSqliteDatabase,
@@ -83,6 +85,8 @@ export async function activate(context: vscode.ExtensionContext) {
   s3Explorer = new S3Explorer();
   s3FileSystemProvider = new S3FileSystemProvider();
   initLocalWranglerClient(context.extensionPath);
+  initBunS3Client(context.extensionPath);
+  initOpenDalClient(context.extensionPath);
   localWranglerExplorer = new LocalWranglerExplorer(context.workspaceState);
 
   // Register Email Viewer

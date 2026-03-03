@@ -17,7 +17,7 @@ import {
   generateTestObjectKey,
 } from "../test-config";
 
-suite("R2 Integration Tests", () => {
+describe("R2 Integration Tests", () => {
   let testConfig: any;
   let testBucketName: string;
 
@@ -71,7 +71,7 @@ suite("R2 Integration Tests", () => {
     }
   });
 
-  test("testConnection should connect to R2 successfully", async function () {
+  it("testConnection should connect to R2 successfully", async function () {
     this.timeout(15000);
 
     if (skipIfNoCredentials()) {
@@ -83,7 +83,7 @@ suite("R2 Integration Tests", () => {
     assert.ok(true, "Connection should succeed");
   });
 
-  test("listBuckets should return available buckets", async function () {
+  it("listBuckets should return available buckets", async function () {
     this.timeout(10000);
 
     if (skipIfNoCredentials()) {
@@ -99,7 +99,7 @@ suite("R2 Integration Tests", () => {
     assert.ok(testBucket.name, "Bucket should have a name");
   });
 
-  test("CRUD operations should work with test objects", async function () {
+  it("CRUD operations should work with test objects", async function () {
     this.timeout(20000);
 
     if (skipIfNoCredentials()) {
@@ -158,7 +158,7 @@ suite("R2 Integration Tests", () => {
     }
   });
 
-  test("folder operations should work", async function () {
+  it("folder operations should work", async function () {
     this.timeout(15000);
 
     if (skipIfNoCredentials()) {
@@ -198,7 +198,7 @@ suite("R2 Integration Tests", () => {
     }
   });
 
-  test("presigned URL generation should work", async function () {
+  it("presigned URL generation should work", async function () {
     this.timeout(15000);
 
     if (skipIfNoCredentials()) {
@@ -241,7 +241,7 @@ suite("R2 Integration Tests", () => {
     }
   });
 
-  test("cache should work correctly", async function () {
+  it("cache should work correctly", async function () {
     this.timeout(10000);
 
     if (skipIfNoCredentials()) {
@@ -284,7 +284,7 @@ suite("R2 Integration Tests", () => {
     );
   });
 
-  test("error handling should work correctly", async function () {
+  it("error handling should work correctly", async function () {
     this.timeout(10000);
 
     if (skipIfNoCredentials()) {

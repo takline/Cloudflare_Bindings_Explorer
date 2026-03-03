@@ -11,3 +11,4 @@ package-lock.json
 errors.log
 *.DS_Store
 .wrangler
+target
