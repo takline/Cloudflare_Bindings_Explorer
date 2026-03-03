@@ -70,6 +70,12 @@ import {
   isVideoFile,
   isAudioFile,
 } from "./util/paths";
+import {
+  initOutputChannel,
+  logError,
+  logInfo,
+  showOutputChannel,
+} from "./util/output";
 
 import { MailViewer } from "./email/MailViewer";
 
@@ -78,7 +84,8 @@ let s3FileSystemProvider: S3FileSystemProvider;
 let localWranglerExplorer: LocalWranglerExplorer;
 
 export async function activate(context: vscode.ExtensionContext) {
-  console.log("Cloudflare Bindings Explorer is activating...");
+  initOutputChannel(context);
+  logInfo("Cloudflare Bindings Explorer is activating.");
 
   // Initialize providers
   s3Explorer = new S3Explorer();
@@ -124,7 +131,9 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       await testConnection();
       showInformationMessage("Connected to S3/R2 successfully!");
+      logInfo("S3/R2 startup connection test succeeded.");
     } catch (error) {
+      logError("S3/R2 startup connection test failed.", error);
       showErrorMessage(
         `Failed to connect to S3/R2: ${
           error instanceof Error ? error.message : error
@@ -133,7 +142,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
 
-  console.log("Cloudflare Bindings Explorer activated successfully");
+  logInfo("Cloudflare Bindings Explorer activated successfully.");
 }
 
 export function deactivate() {
@@ -159,7 +168,7 @@ function registerCommands(context: vscode.ExtensionContext) {
       try {
         s3Explorer.refresh(node);
       } catch (error) {
-        console.error("Error during refresh:", error);
+        logError("Error during refresh command.", error);
         // If refresh fails, try a full refresh
         s3Cache.invalidateAll();
         s3Explorer.refresh();
@@ -170,6 +179,12 @@ function registerCommands(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.commands.registerCommand("r2.configure", async () => {
       await openSecureSetup();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("r2.showOutput", () => {
+      showOutputChannel(false);
     })
   );
 

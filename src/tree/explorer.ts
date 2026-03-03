@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { listBuckets, listObjects } from "../s3/listing";
 import { S3Error } from "../types";
 import { s3Cache } from "../util/cache";
+import { logError } from "../util/output";
 import {
   BaseTreeNode,
   BucketNode,
@@ -81,7 +82,7 @@ export class S3Explorer
       // Objects have no children
       return [];
     } catch (error) {
-      console.error("Error getting tree children:", error);
+      logError("Error getting tree children.", error);
 
       // Check if this is a "bucket doesn't exist" error
       if (
@@ -95,7 +96,6 @@ export class S3Explorer
           const bucketName = isBucketNode(element)
             ? element.bucket
             : element.bucket;
-          console.log(`Clearing cache for non-existent bucket: ${bucketName}`);
           s3Cache.invalidate(bucketName);
         }
 
