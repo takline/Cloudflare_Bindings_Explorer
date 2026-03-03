@@ -158,7 +158,9 @@ export class LocalWranglerExplorer
 
     if (wranglerRoots.length === 0) {
       roots.push(
-        new MessageNode("No .wrangler* or wrangler* directories found.")
+        new MessageNode(
+          "No .wrangler* or wrangler* directories with local KV/D1/R2 data found."
+        )
       );
       return roots;
     }
