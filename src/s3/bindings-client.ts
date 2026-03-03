@@ -1,6 +1,7 @@
 import { runBindingsCli } from "../bindings/client";
 import { getConfig } from "./client";
 import { logError, logInfo } from "../util/output";
+import { ListBucketsCommand, S3Client } from "@aws-sdk/client-s3";
 
 interface CliListEntry {
   path: string;
@@ -170,16 +171,11 @@ export async function runS3Action<T>(
   }
 
   if (actionName === "listBuckets") {
-    action.action = "list";
-    action.path = "/";
-    const result = (await runBindingsCli(action)) as CliListResult;
-    return { buckets: mapListEntriesToBuckets(result) } as T;
+    return (await listBucketsWithSdk(credentials)) as T;
   }
 
   if (actionName === "testConnection") {
-    action.action = "list";
-    action.path = "/";
-    await runBindingsCli(action);
+    await listBucketsWithSdk(credentials);
     return {} as T;
   }
 
@@ -190,4 +186,34 @@ export async function runS3Action<T>(
   const unsupportedMessage = `Action ${actionName} is not supported by the bindings client`;
   logError(unsupportedMessage);
   throw new Error(unsupportedMessage);
+}
+
+async function listBucketsWithSdk(credentials: {
+  endpointUrl: string;
+  region: string;
+  accessKeyId: string;
+  secretAccessKey: string;
+  forcePathStyle?: boolean;
+}): Promise<{ buckets: BucketLike[] }> {
+  const client = new S3Client({
+    region: credentials.region || "auto",
+    endpoint: credentials.endpointUrl,
+    forcePathStyle: credentials.forcePathStyle ?? true,
+    credentials: {
+      accessKeyId: credentials.accessKeyId,
+      secretAccessKey: credentials.secretAccessKey,
+    },
+  });
+
+  const result = await client.send(new ListBucketsCommand({}));
+  const buckets = (result.Buckets || [])
+    .filter((bucket) => typeof bucket?.Name === "string" && bucket.Name.length > 0)
+    .map((bucket) => ({
+      name: String(bucket.Name),
+      creationDate: bucket.CreationDate
+        ? bucket.CreationDate.toISOString()
+        : undefined,
+    }));
+
+  return { buckets };
 }

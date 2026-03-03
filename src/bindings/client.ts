@@ -50,11 +50,14 @@ export async function runBindingsCli(action: unknown): Promise<any> {
 
     child.on("close", (code) => {
       if (code !== 0) {
+        const cliErrorMessage = parseCliFailureOutput(stdoutData, stderrData);
         logError(
           `Bindings CLI failed (code ${code}) for ${actionSummary}`,
-          stderrData.trim()
+          cliErrorMessage
         );
-        reject(new Error(`Bindings CLI failed with code ${code}: ${stderrData}`));
+        reject(
+          new Error(`Bindings CLI failed with code ${code}: ${cliErrorMessage}`)
+        );
         return;
       }
 
@@ -98,4 +101,28 @@ function summarizeCliAction(action: unknown): string {
       : "";
 
   return `service=${service} action=${type}${pathValue}`;
+}
+
+function parseCliFailureOutput(stdoutData: string, stderrData: string): string {
+  const stderrText = stderrData.trim();
+  const stdoutText = stdoutData.trim();
+
+  if (stderrText) {
+    return stderrText;
+  }
+
+  if (!stdoutText) {
+    return "No error output provided by bindings CLI";
+  }
+
+  try {
+    const parsed = JSON.parse(stdoutText) as { error?: unknown };
+    if (typeof parsed?.error === "string" && parsed.error.trim().length > 0) {
+      return parsed.error;
+    }
+  } catch {
+    // Fall back to raw stdout text.
+  }
+
+  return stdoutText;
 }
