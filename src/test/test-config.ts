@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { deleteSecret, getSecret, storeSecret } from "../util/secrets";
 
 export interface TestConfig {
   endpointUrl: string;
@@ -9,15 +10,15 @@ export interface TestConfig {
 }
 
 /**
- * Get test configuration from environment or local settings
- * Uses GitHub secrets in CI, local credentials for development
+ * Get test configuration from environment
+ * Uses CI secrets or local shell environment values
  */
 export function getTestConfig(): TestConfig {
   return {
     endpointUrl: process.env.R2_ENDPOINT_URL || "",
     accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
-    region: process.env.R2_REGION || "us-east-1",
+    region: process.env.R2_REGION || "auto",
     testBucketPrefix: "r2-test-ci",
   };
 }
@@ -51,8 +52,10 @@ export class MockWorkspaceConfiguration
   constructor(testConfig: TestConfig) {
     this.config = {
       endpointUrl: testConfig.endpointUrl,
-      accessKeyId: testConfig.accessKeyId,
-      secretAccessKey: testConfig.secretAccessKey,
+      // Legacy fields are intentionally set to validate that runtime
+      // configuration no longer reads credentials from settings.
+      accessKeyId: "legacy-setting-access-key",
+      secretAccessKey: "legacy-setting-secret-key",
       region: testConfig.region,
       forcePathStyle: true,
       maxPreviewSizeBytes: 10485760,
@@ -91,19 +94,59 @@ export class MockWorkspaceConfiguration
   readonly [key: string]: any;
 }
 
+let originalGetConfiguration:
+  | typeof vscode.workspace.getConfiguration
+  | undefined;
+let originalSecrets:
+  | { accessKeyId: string | null; secretAccessKey: string | null }
+  | undefined;
+
+export async function setSecureCredentials(
+  accessKeyId: string,
+  secretAccessKey: string
+): Promise<void> {
+  if (accessKeyId) {
+    await storeSecret("r2.accessKeyId", accessKeyId);
+  } else {
+    await deleteSecret("r2.accessKeyId");
+  }
+
+  if (secretAccessKey) {
+    await storeSecret("r2.secretAccessKey", secretAccessKey);
+  } else {
+    await deleteSecret("r2.secretAccessKey");
+  }
+}
+
 /**
  * Set up test environment with mock VS Code configuration
  */
-export function setupTestEnvironment(): TestConfig {
+export async function setupTestEnvironment(): Promise<TestConfig> {
   const testConfig = getTestConfig();
 
+  if (!originalSecrets) {
+    originalSecrets = {
+      accessKeyId: await getSecret("r2.accessKeyId"),
+      secretAccessKey: await getSecret("r2.secretAccessKey"),
+    };
+  }
+
+  await setSecureCredentials(testConfig.accessKeyId, testConfig.secretAccessKey);
+
+  if (!originalGetConfiguration) {
+    originalGetConfiguration = vscode.workspace.getConfiguration.bind(
+      vscode.workspace
+    );
+  }
+
   // Mock vscode.workspace.getConfiguration
-  const originalGetConfiguration = vscode.workspace.getConfiguration;
   (vscode.workspace as any).getConfiguration = (section?: string) => {
     if (section === "r2") {
       return new MockWorkspaceConfiguration(testConfig);
     }
-    return originalGetConfiguration(section);
+    return originalGetConfiguration
+      ? originalGetConfiguration(section)
+      : vscode.workspace.getConfiguration(section);
   };
 
   return testConfig;
@@ -112,9 +155,18 @@ export function setupTestEnvironment(): TestConfig {
 /**
  * Clean up test environment
  */
-export function teardownTestEnvironment() {
-  // Restore original VS Code configuration method if needed
-  // This would be implemented if we need to restore mocks
+export async function teardownTestEnvironment() {
+  if (originalGetConfiguration) {
+    (vscode.workspace as any).getConfiguration = originalGetConfiguration;
+  }
+
+  if (originalSecrets) {
+    await setSecureCredentials(
+      originalSecrets.accessKeyId || "",
+      originalSecrets.secretAccessKey || ""
+    );
+    originalSecrets = undefined;
+  }
 }
 
 /**

@@ -62,6 +62,7 @@ import {
   showErrorMessage,
   showInformationMessage,
 } from "./ui/prompts";
+import { openSecureSetupPanel } from "./ui/secureSetupPanel";
 import {
   joinPath,
   getFileName,
@@ -141,6 +142,17 @@ export function deactivate() {
 }
 
 function registerCommands(context: vscode.ExtensionContext) {
+  const openSecureSetup = async () => {
+    const updated = await openSecureSetupPanel();
+    if (!updated) {
+      return;
+    }
+
+    clearClientCache();
+    s3Cache.invalidateAll();
+    s3Explorer.refresh();
+  };
+
   // Core commands
   context.subscriptions.push(
     vscode.commands.registerCommand("r2.refresh", async (node) => {
@@ -157,11 +169,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("r2.configure", async () => {
-      // Open VS Code settings page to R2 section
-      await vscode.commands.executeCommand(
-        "workbench.action.openSettings",
-        "r2"
-      );
+      await openSecureSetup();
     })
   );
 
@@ -267,16 +275,7 @@ function registerCommands(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     vscode.commands.registerCommand("r2.reauth", async () => {
-      clearClientCache();
-      await promptForConfigurationSetup();
-      s3Explorer.refresh();
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("r2.configureWizard", async () => {
-      await promptForConfigurationSetup();
-      s3Explorer.refresh();
+      await openSecureSetup();
     })
   );
 

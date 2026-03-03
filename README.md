@@ -15,12 +15,18 @@ A VSCode extension to browse and manage Cloudflare bindings (R2, KV, D1), AWS S3
 ## Features
 - Connect to S3-compatible cloud storage (specifically configured and optimized for Cloudflare R2)
 - Explore buckets, folders, and objects in a tree view
-- Explore local Wrangler storage (KV, D1, R2) from `.wrangler*` directories
+- Explore local Wrangler storage (KV, D1, R2) from `.wrangler*` and `wrangler*` directories
 - Visual SQLite editor for local bindings and manually added databases
 - Read, upload, delete, rename, and move objects
 - Generate Presigned URLs
 - Seamlessly open and view `.eml` emails including their attachments and HTML bodies within VS Code
 - Built with modern Node and Bun APIs
+
+## Configuration & Security
+- Use `Update R2 Endpoint & Credentials` from the command palette to configure access.
+- Credentials are stored in system keyring storage and are not persisted in `settings.json`.
+- Existing credentials are masked in the setup UI (`********`) and never displayed in plaintext.
+- Default region is `auto` (recommended for Cloudflare R2).
 
 ## Prerequisites
 - Bun (required for development scripts and local env seeding)
@@ -28,7 +34,7 @@ A VSCode extension to browse and manage Cloudflare bindings (R2, KV, D1), AWS S3
 - VS Code (for extension development and testing)
 
 ## Local Wrangler Explorer
-The **Wrangler Local** view scans your workspace for `.wrangler*` directories and exposes:
+The **Wrangler Local** view scans your workspace for `.wrangler*` and `wrangler*` directories and exposes:
 - KV namespaces and keys (values open as files)
 - D1 databases, tables, and rows (rows open as JSON)
 - R2 buckets and objects (objects open as files)

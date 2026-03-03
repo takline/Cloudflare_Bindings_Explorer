@@ -18,12 +18,11 @@ import {
 } from "../test-config";
 
 describe("R2 Integration Tests", () => {
-  let testConfig: any;
   let testBucketName: string;
 
   suiteSetup(async function () {
     this.timeout(30000);
-    testConfig = setupTestEnvironment();
+    await setupTestEnvironment();
 
     if (skipIfNoCredentials()) {
       this.skip();
@@ -49,7 +48,7 @@ describe("R2 Integration Tests", () => {
 
   suiteTeardown(async function () {
     this.timeout(30000);
-    teardownTestEnvironment();
+    await teardownTestEnvironment();
 
     if (!testBucketName) {
       return;

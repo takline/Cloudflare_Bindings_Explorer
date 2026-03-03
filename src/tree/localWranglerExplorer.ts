@@ -145,7 +145,9 @@ export class LocalWranglerExplorer
 
     if (!workspaceFolders || workspaceFolders.length === 0) {
       roots.push(
-        new MessageNode("Open a workspace to scan for .wrangler directories.")
+        new MessageNode(
+          "Open a workspace to scan for .wrangler* and wrangler* directories."
+        )
       );
       return roots;
     }
@@ -155,7 +157,9 @@ export class LocalWranglerExplorer
     );
 
     if (wranglerRoots.length === 0) {
-      roots.push(new MessageNode("No .wrangler directories found."));
+      roots.push(
+        new MessageNode("No .wrangler* or wrangler* directories found.")
+      );
       return roots;
     }
 

@@ -7,6 +7,8 @@ import {
   isFolder,
   ensureTrailingSlash,
   removeTrailingSlash,
+  createR2Uri,
+  parseR2Uri,
   isChildOf,
   getRelativePath,
   getPathSegments,
@@ -76,6 +78,38 @@ describe("Path Utilities (Pure Functions)", () => {
     assert.strictEqual(removeTrailingSlash("folder/"), "folder");
     assert.strictEqual(removeTrailingSlash("folder"), "folder");
     assert.strictEqual(removeTrailingSlash("/"), "");
+  });
+
+  it("createR2Uri should create valid URIs", () => {
+    assert.strictEqual(createR2Uri("bucket"), "r2://bucket/");
+    assert.strictEqual(
+      createR2Uri("bucket", "file.txt"),
+      "r2://bucket/file.txt"
+    );
+    assert.strictEqual(
+      createR2Uri("bucket", "/file.txt"),
+      "r2://bucket/file.txt"
+    );
+    assert.strictEqual(
+      createR2Uri("bucket", "folder/file.txt"),
+      "r2://bucket/folder/file.txt"
+    );
+  });
+
+  it("parseR2Uri should parse URIs correctly", () => {
+    const result1 = parseR2Uri("r2://bucket/file.txt");
+    assert.strictEqual(result1.bucket, "bucket");
+    assert.strictEqual(result1.key, "file.txt");
+
+    const result2 = parseR2Uri("r2://bucket/folder/file.txt");
+    assert.strictEqual(result2.bucket, "bucket");
+    assert.strictEqual(result2.key, "folder/file.txt");
+
+    const result3 = parseR2Uri("r2://bucket/");
+    assert.strictEqual(result3.bucket, "bucket");
+    assert.strictEqual(result3.key, "");
+
+    assert.throws(() => parseR2Uri("invalid-uri"), /Invalid R2 URI/);
   });
 
   it("isChildOf should detect parent-child relationships", () => {

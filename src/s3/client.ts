@@ -6,12 +6,14 @@ import { getSecret } from "../util/secrets";
 
 export async function getConfig(): Promise<S3Config> {
   const config = vscode.workspace.getConfiguration("r2");
+  const accessKeyId = (await getSecret("r2.accessKeyId")) || "";
+  const secretAccessKey = (await getSecret("r2.secretAccessKey")) || "";
 
   return {
     endpointUrl: config.get<string>("endpointUrl", ""),
-    region: config.get<string>("region", "us-east-1"),
-    accessKeyId: (await getSecret("r2.accessKeyId")) || config.get<string>("accessKeyId", ""), // Fallback to settings
-    secretAccessKey: (await getSecret("r2.secretAccessKey")) || config.get<string>("secretAccessKey", ""), // Fallback to settings
+    region: config.get<string>("region", "auto"),
+    accessKeyId,
+    secretAccessKey,
     forcePathStyle: config.get<boolean>("forcePathStyle", true),
     maxPreviewSizeBytes: config.get<number>("maxPreviewSizeBytes", 10485760),
   };
