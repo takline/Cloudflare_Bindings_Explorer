@@ -1,122 +1,92 @@
-import { execFile } from "node:child_process";
-import { promises as fs } from "node:fs";
-import * as path from "node:path";
-import { promisify } from "node:util";
+import { runBindingsCli } from "../bindings/client";
 import {
   D1DatabaseInfo,
   D1RowsResult,
   D1TableInfo,
-  KvEntryInfo,
   KvListResult,
   KvNamespaceInfo,
   R2BucketInfo,
   R2ListResult,
-  WranglerRootsResult,
   WranglerStorageTypesResult,
 } from "./types";
 
-const execFileAsync = promisify(execFile);
-
-let transformScriptPath: string | null = null;
-
-export class BunNotFoundError extends Error {
+export class LocalWranglerRuntimeNotFoundError extends Error {
   constructor() {
-    super("Bun runtime not found");
-    this.name = "BunNotFoundError";
+    super("Bindings CLI runtime not found");
+    this.name = "LocalWranglerRuntimeNotFoundError";
   }
 }
 
-export function initLocalWranglerClient(extensionPath: string): void {
-  transformScriptPath = path.join(
-    extensionPath,
-    "scripts",
-    "wrangler-local",
-    "wrangler-local.ts"
-  );
+function mapCliError(error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error);
+  if (
+    message.includes("Bindings CLI not initialized") ||
+    message.includes("ENOENT")
+  ) {
+    throw new LocalWranglerRuntimeNotFoundError();
+  }
+
+  throw error instanceof Error ? error : new Error(message);
 }
 
-async function ensureTransformScript(): Promise<string> {
-  if (!transformScriptPath) {
-    throw new Error("Local Wrangler client not initialized");
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
   }
 
-  try {
-    await fs.access(transformScriptPath);
-  } catch {
-    throw new Error(`Wrangler transform script not found at ${transformScriptPath}`);
-  }
-
-  return transformScriptPath;
-}
-
-async function runTransform<T>(payload: object): Promise<T> {
-  const scriptPath = await ensureTransformScript();
-  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString(
-    "base64"
-  );
-
-  try {
-    const { stdout } = await execFileAsync(
-      "bun",
-      [scriptPath, `--input=${encoded}`],
-      { maxBuffer: 1024 * 1024 * 20 }
-    );
-
-    const parsed = JSON.parse(stdout) as { ok: boolean; data?: T; error?: string };
-    if (!parsed.ok) {
-      throw new Error(parsed.error || "Wrangler transform failed");
-    }
-
-    return parsed.data as T;
-  } catch (error: any) {
-    if (error?.code === "ENOENT") {
-      throw new BunNotFoundError();
-    }
-
-    if (error?.stdout) {
-      try {
-        const parsed = JSON.parse(error.stdout) as {
-          ok: boolean;
-          data?: T;
-          error?: string;
-        };
-        if (!parsed.ok) {
-          throw new Error(parsed.error || "Wrangler transform failed");
-        }
-      } catch {
-        // Fall through to throw the original error below.
-      }
-    }
-
-    throw error;
-  }
+  return value.filter((item): item is string => typeof item === "string");
 }
 
 export async function findWranglerRoots(roots: string[]): Promise<string[]> {
-  const result = await runTransform<WranglerRootsResult>({
-    action: "findRoots",
-    roots,
-  });
-  return result.roots;
+  try {
+    const result = await runBindingsCli({ action: "findRoots", roots });
+    return readStringArray((result as { roots?: unknown }).roots);
+  } catch (error) {
+    mapCliError(error);
+  }
 }
 
 export async function listStorageTypes(
   wranglerDir: string
 ): Promise<WranglerStorageTypesResult> {
-  return runTransform<WranglerStorageTypesResult>({
-    action: "listStorageTypes",
-    wranglerDir,
-  });
+  try {
+    const result = await runBindingsCli({
+      action: "listStorageTypes",
+      wranglerDir,
+    });
+
+    return {
+      statePath:
+        typeof result?.statePath === "string"
+          ? result.statePath
+          : wranglerDir,
+      types: readStringArray(result?.types).filter(
+        (type): type is "kv" | "d1" | "r2" =>
+          type === "kv" || type === "d1" || type === "r2"
+      ),
+    };
+  } catch (error) {
+    mapCliError(error);
+  }
 }
 
 export async function listKvNamespaces(
   wranglerDir: string
 ): Promise<KvNamespaceInfo[]> {
-  const result = await runTransform<{ namespaces: KvNamespaceInfo[] }>({
-    action: "listKvNamespaces",
-    wranglerDir,
-  });
-  return result.namespaces;
+  try {
+    const result = await runBindingsCli({
+      action: "listKvNamespaces",
+      wranglerDir,
+    });
+
+    if (!Array.isArray(result?.namespaces)) {
+      return [];
+    }
+
+    return result.namespaces as KvNamespaceInfo[];
+  } catch (error) {
+    mapCliError(error);
+  }
 }
 
 export async function listKvEntries(payload: {
@@ -125,20 +95,43 @@ export async function listKvEntries(payload: {
   blobsPath?: string;
   prefix?: string;
 }): Promise<KvListResult> {
-  return runTransform<KvListResult>({
-    action: "listKvEntries",
-    ...payload,
-  });
+  try {
+    const result = await runBindingsCli({
+      action: "listKvEntries",
+      wranglerDir: payload.wranglerDir,
+      sqlitePath: payload.sqlitePath,
+      blobsPath: payload.blobsPath,
+      prefix: payload.prefix,
+    });
+
+    return {
+      prefixes: Array.isArray(result?.prefixes)
+        ? (result.prefixes as Array<{ prefix: string }>).filter(
+            (item) => typeof item?.prefix === "string"
+          )
+        : [],
+      entries: Array.isArray(result?.entries)
+        ? (result.entries as KvListResult["entries"])
+        : [],
+    };
+  } catch (error) {
+    mapCliError(error);
+  }
 }
 
 export async function listR2Buckets(
   wranglerDir: string
 ): Promise<R2BucketInfo[]> {
-  const result = await runTransform<{ buckets: R2BucketInfo[] }>({
-    action: "listR2Buckets",
-    wranglerDir,
-  });
-  return result.buckets;
+  try {
+    const result = await runBindingsCli({ action: "listR2Buckets", wranglerDir });
+    if (!Array.isArray(result?.buckets)) {
+      return [];
+    }
+
+    return result.buckets as R2BucketInfo[];
+  } catch (error) {
+    mapCliError(error);
+  }
 }
 
 export async function listR2Objects(payload: {
@@ -146,38 +139,80 @@ export async function listR2Objects(payload: {
   bucket: string;
   prefix?: string;
 }): Promise<R2ListResult> {
-  return runTransform<R2ListResult>({
-    action: "listR2Objects",
-    ...payload,
-  });
+  try {
+    const result = await runBindingsCli({
+      action: "listR2Objects",
+      wranglerDir: payload.wranglerDir,
+      bucket: payload.bucket,
+      prefix: payload.prefix,
+    });
+
+    return {
+      prefixes: Array.isArray(result?.prefixes)
+        ? (result.prefixes as Array<{ prefix: string }>).filter(
+            (item) => typeof item?.prefix === "string"
+          )
+        : [],
+      objects: Array.isArray(result?.objects)
+        ? (result.objects as R2ListResult["objects"])
+        : [],
+    };
+  } catch (error) {
+    mapCliError(error);
+  }
 }
 
 export async function listD1Databases(
   wranglerDir: string
 ): Promise<D1DatabaseInfo[]> {
-  const result = await runTransform<{ databases: D1DatabaseInfo[] }>({
-    action: "listD1Databases",
-    wranglerDir,
-  });
-  return result.databases;
+  try {
+    const result = await runBindingsCli({ action: "listD1Databases", wranglerDir });
+    if (!Array.isArray(result?.databases)) {
+      return [];
+    }
+
+    return result.databases as D1DatabaseInfo[];
+  } catch (error) {
+    mapCliError(error);
+  }
 }
 
 export async function listD1Tables(payload: {
   sqlitePath: string;
 }): Promise<D1TableInfo[]> {
-  const result = await runTransform<{ tables: D1TableInfo[] }>({
-    action: "listD1Tables",
-    ...payload,
-  });
-  return result.tables;
+  try {
+    const result = await runBindingsCli({
+      action: "listD1Tables",
+      sqlitePath: payload.sqlitePath,
+    });
+
+    if (!Array.isArray(result?.tables)) {
+      return [];
+    }
+
+    return result.tables as D1TableInfo[];
+  } catch (error) {
+    mapCliError(error);
+  }
 }
 
 export async function listD1Rows(payload: {
   sqlitePath: string;
   table: string;
 }): Promise<D1RowsResult> {
-  return runTransform<D1RowsResult>({
-    action: "listD1Rows",
-    ...payload,
-  });
+  try {
+    const result = await runBindingsCli({
+      action: "listD1Rows",
+      sqlitePath: payload.sqlitePath,
+      table: payload.table,
+    });
+
+    return {
+      rows: Array.isArray(result?.rows)
+        ? (result.rows as Array<Record<string, unknown>>)
+        : [],
+    };
+  } catch (error) {
+    mapCliError(error);
+  }
 }

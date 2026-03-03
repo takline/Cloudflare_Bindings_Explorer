@@ -17,7 +17,7 @@ import {
   generateTestObjectKey,
 } from "../test-config";
 
-suite("R2 Integration Tests", () => {
+describe("R2 Integration Tests", () => {
   let testConfig: any;
   let testBucketName: string;
 
@@ -58,7 +58,7 @@ suite("R2 Integration Tests", () => {
     try {
       // Clean up any test objects that might have been left behind
       // We use a specific prefix to ensure we only delete our test objects
-      const testPrefix = "s3x-test-";
+      const testPrefix = "r2-test-";
       console.log(
         `Cleaning up test objects with prefix "${testPrefix}" in bucket "${testBucketName}"`
       );
@@ -71,7 +71,7 @@ suite("R2 Integration Tests", () => {
     }
   });
 
-  test("testConnection should connect to R2 successfully", async function () {
+  it("testConnection should connect to R2 successfully", async function () {
     this.timeout(15000);
 
     if (skipIfNoCredentials()) {
@@ -83,7 +83,7 @@ suite("R2 Integration Tests", () => {
     assert.ok(true, "Connection should succeed");
   });
 
-  test("listBuckets should return available buckets", async function () {
+  it("listBuckets should return available buckets", async function () {
     this.timeout(10000);
 
     if (skipIfNoCredentials()) {
@@ -99,14 +99,14 @@ suite("R2 Integration Tests", () => {
     assert.ok(testBucket.name, "Bucket should have a name");
   });
 
-  test("CRUD operations should work with test objects", async function () {
+  it("CRUD operations should work with test objects", async function () {
     this.timeout(20000);
 
     if (skipIfNoCredentials()) {
       return;
     }
 
-    const testKey = generateTestObjectKey("s3x-test-crud");
+    const testKey = generateTestObjectKey("r2-test-crud");
     const testContent = `Test content created at ${new Date().toISOString()}\nThis is a test object for the Cloudflare Bindings Explorer extension.`;
     const testContentBytes = new TextEncoder().encode(testContent);
 
@@ -158,14 +158,14 @@ suite("R2 Integration Tests", () => {
     }
   });
 
-  test("folder operations should work", async function () {
+  it("folder operations should work", async function () {
     this.timeout(15000);
 
     if (skipIfNoCredentials()) {
       return;
     }
 
-    const folderPrefix = `s3x-test-folder-${Date.now()}/`;
+    const folderPrefix = `r2-test-folder-${Date.now()}/`;
     const testObjectKey = folderPrefix + "test-file.txt";
 
     try {
@@ -198,14 +198,14 @@ suite("R2 Integration Tests", () => {
     }
   });
 
-  test("presigned URL generation should work", async function () {
+  it("presigned URL generation should work", async function () {
     this.timeout(15000);
 
     if (skipIfNoCredentials()) {
       return;
     }
 
-    const testKey = generateTestObjectKey("s3x-test-presign");
+    const testKey = generateTestObjectKey("r2-test-presign");
     const testContent = "Content for presigned URL test";
 
     try {
@@ -241,7 +241,7 @@ suite("R2 Integration Tests", () => {
     }
   });
 
-  test("cache should work correctly", async function () {
+  it("cache should work correctly", async function () {
     this.timeout(10000);
 
     if (skipIfNoCredentials()) {
@@ -284,7 +284,7 @@ suite("R2 Integration Tests", () => {
     );
   });
 
-  test("error handling should work correctly", async function () {
+  it("error handling should work correctly", async function () {
     this.timeout(10000);
 
     if (skipIfNoCredentials()) {
@@ -292,7 +292,7 @@ suite("R2 Integration Tests", () => {
     }
 
     // Test with non-existent object
-    const nonExistentKey = "s3x-test-nonexistent-" + Date.now();
+    const nonExistentKey = "r2-test-nonexistent-" + Date.now();
 
     try {
       await getObject(testBucketName, nonExistentKey);

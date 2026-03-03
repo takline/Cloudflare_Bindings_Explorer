@@ -7,7 +7,7 @@ import {
 } from "../s3/ops";
 import { listObjects } from "../s3/listing";
 import {
-  parseS3xUri,
+  parseR2Uri,
   joinPath,
   isTextFile,
   isImageFile,
@@ -33,7 +33,7 @@ export class S3FileSystemProvider implements vscode.FileSystemProvider {
 
   async stat(uri: vscode.Uri): Promise<vscode.FileStat> {
     try {
-      const { bucket, key } = parseS3xUri(uri.toString());
+      const { bucket, key } = parseR2Uri(uri.toString());
 
       if (!key || key === "") {
         // This is a bucket - treat as directory
@@ -76,7 +76,7 @@ export class S3FileSystemProvider implements vscode.FileSystemProvider {
 
   async readDirectory(uri: vscode.Uri): Promise<[string, vscode.FileType][]> {
     try {
-      const { bucket, key } = parseS3xUri(uri.toString());
+      const { bucket, key } = parseR2Uri(uri.toString());
       const prefix = key && key !== "" ? key : undefined;
 
       const result = await listObjects(bucket, prefix);
@@ -127,7 +127,7 @@ export class S3FileSystemProvider implements vscode.FileSystemProvider {
 
   async createDirectory(uri: vscode.Uri): Promise<void> {
     try {
-      const { bucket, key } = parseS3xUri(uri.toString());
+      const { bucket, key } = parseR2Uri(uri.toString());
 
       if (!key) {
         throw vscode.FileSystemError.NoPermissions(
@@ -153,7 +153,7 @@ export class S3FileSystemProvider implements vscode.FileSystemProvider {
 
   async readFile(uri: vscode.Uri): Promise<Uint8Array> {
     try {
-      const { bucket, key } = parseS3xUri(uri.toString());
+      const { bucket, key } = parseR2Uri(uri.toString());
 
       if (!key) {
         throw vscode.FileSystemError.FileIsADirectory(uri);
@@ -182,7 +182,7 @@ export class S3FileSystemProvider implements vscode.FileSystemProvider {
     options: { create: boolean; overwrite: boolean }
   ): Promise<void> {
     try {
-      const { bucket, key } = parseS3xUri(uri.toString());
+      const { bucket, key } = parseR2Uri(uri.toString());
 
       if (!key) {
         throw vscode.FileSystemError.FileIsADirectory(uri);
@@ -232,7 +232,7 @@ export class S3FileSystemProvider implements vscode.FileSystemProvider {
     options: { recursive: boolean }
   ): Promise<void> {
     try {
-      const { bucket, key } = parseS3xUri(uri.toString());
+      const { bucket, key } = parseR2Uri(uri.toString());
 
       if (!key) {
         throw vscode.FileSystemError.NoPermissions(
@@ -304,8 +304,8 @@ export class S3FileSystemProvider implements vscode.FileSystemProvider {
     options: { overwrite: boolean }
   ): Promise<void> {
     try {
-      const oldParsed = parseS3xUri(oldUri.toString());
-      const newParsed = parseS3xUri(newUri.toString());
+      const oldParsed = parseR2Uri(oldUri.toString());
+      const newParsed = parseR2Uri(newUri.toString());
 
       if (!oldParsed.key || !newParsed.key) {
         throw vscode.FileSystemError.NoPermissions("Cannot rename buckets");

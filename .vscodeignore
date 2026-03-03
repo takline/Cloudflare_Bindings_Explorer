@@ -21,6 +21,7 @@ repro_eslint9.mjs
 vsc-extension-quickstart.md
 scripts/**
 !scripts/wrangler-local/**
+!scripts/s3-local/**
 .DS_Store
 yarn.lock
 bun.lock
@@ -32,3 +33,7 @@ node_modules/**
 .DS_Store
 out/test/**
 out/.DS_Store
+build.ts
+src-rust/**
+!src-rust/bindings-cli/target/release/bindings-cli
+!src-rust/bindings-cli/target/debug/bindings-cli

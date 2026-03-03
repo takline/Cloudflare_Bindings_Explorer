@@ -85,20 +85,20 @@ export function removeTrailingSlash(prefix: string): string {
 }
 
 /**
- * Create an S3X URI for the filesystem provider
+ * Create an R2 URI for the filesystem provider
  */
-export function createS3xUri(bucket: string, key?: string): string {
+export function createR2Uri(bucket: string, key?: string): string {
   const normalizedKey = key ? normalizeKey(key) : "";
-  return `s3x://${bucket}/${normalizedKey}`;
+  return `r2://${bucket}/${normalizedKey}`;
 }
 
 /**
- * Parse an S3X URI into bucket and key components
+ * Parse an R2 URI into bucket and key components
  */
-export function parseS3xUri(uri: string): { bucket: string; key: string } {
-  const match = uri.match(/^s3x:\/\/([^\/]+)\/(.*)$/);
+export function parseR2Uri(uri: string): { bucket: string; key: string } {
+  const match = uri.match(/^r2:\/\/([^\/]+)\/(.*)$/);
   if (!match) {
-    throw new Error(`Invalid S3X URI: ${uri}`);
+    throw new Error(`Invalid R2 URI: ${uri}`);
   }
 
   return {

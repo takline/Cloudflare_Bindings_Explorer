@@ -1,10 +1,5 @@
-import {
-  ListBucketsCommand,
-  ListObjectsV2Command,
-  ListObjectsV2CommandInput,
-  ListObjectsV2CommandOutput,
-} from "@aws-sdk/client-s3";
-import { getS3Client, withRetry } from "./client";
+import { withRetry } from "./client";
+import { runS3Action } from "./bindings-client";
 import {
   S3Bucket,
   S3Object,
@@ -17,15 +12,11 @@ const MAX_KEYS_PER_REQUEST = 1000;
 
 export async function listBuckets(): Promise<S3Bucket[]> {
   return withRetry(async () => {
-    const client = getS3Client();
-    const command = new ListBucketsCommand({});
-
     try {
-      const response = await client.send(command);
-
-      return (response.Buckets || []).map((bucket) => ({
-        name: bucket.Name!,
-        creationDate: bucket.CreationDate,
+      const response = await runS3Action<{ buckets: any[] }>("listBuckets");
+      return response.buckets.map((bucket: any) => ({
+        name: bucket.name,
+        creationDate: bucket.creationDate ? new Date(bucket.creationDate) : undefined,
       }));
     } catch (error: any) {
       throw new S3Error(
@@ -45,47 +36,35 @@ export async function listObjects(
   maxKeys: number = MAX_KEYS_PER_REQUEST
 ): Promise<ListObjectsResult> {
   return withRetry(async () => {
-    const client = getS3Client();
-
-    const input: ListObjectsV2CommandInput = {
-      Bucket: bucket,
-      MaxKeys: maxKeys,
-      Delimiter: "/", // This groups objects by "folders" (prefixes)
-      ContinuationToken: continuationToken,
-    };
-
-    if (prefix) {
-      input.Prefix = prefix;
-    }
+    const input: any = { bucket, maxKeys, delimiter: "/", continuationToken };
+    if (prefix) input.prefix = prefix;
 
     try {
-      const response: ListObjectsV2CommandOutput = await client.send(
-        new ListObjectsV2Command(input)
-      );
+      const response = await runS3Action<any>("listObjects", input);
 
       // Parse objects
-      const objects: S3Object[] = (response.Contents || [])
-        .filter((obj) => obj.Key !== prefix) // Exclude the prefix itself if it exists as an object
-        .map((obj) => ({
-          key: obj.Key!,
-          size: obj.Size,
-          lastModified: obj.LastModified,
-          etag: obj.ETag,
-          storageClass: obj.StorageClass,
+      const objects: S3Object[] = (response.objects || [])
+        .filter((obj: any) => obj.key !== prefix) // Exclude the prefix itself if it exists as an object
+        .map((obj: any) => ({
+          key: obj.key,
+          size: obj.size,
+          lastModified: new Date(obj.lastModified),
+          etag: obj.etag,
+          storageClass: obj.storageClass,
         }));
 
       // Parse prefixes (folders)
-      const prefixes: S3Prefix[] = (response.CommonPrefixes || []).map(
-        (cp) => ({
-          prefix: cp.Prefix!,
+      const prefixes: S3Prefix[] = (response.prefixes || []).map(
+        (cp: any) => ({
+          prefix: cp.prefix,
         })
       );
 
       return {
         objects,
         prefixes,
-        isTruncated: response.IsTruncated || false,
-        continuationToken: response.NextContinuationToken,
+        isTruncated: response.isTruncated || false,
+        continuationToken: response.continuationToken,
       };
     } catch (error: any) {
       if (error.code === "NoSuchBucket") {

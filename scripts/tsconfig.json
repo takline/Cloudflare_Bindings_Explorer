@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "types": [
+      "./local-wrangler-env/worker-configuration.d.ts"
+    ],
+    "allowJs": true,
+    "downlevelIteration": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "./**/*.d.ts",
+    "./**/*.ts"
+  ],
+  "exclude": []
+}

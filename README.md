@@ -4,7 +4,7 @@
 <br>
 <br>
 <p align="center">
-  <img src="logo/dark.png" alt="Cloudflare Bindings Explorer" width="128">
+  <img src="images/logo/dark.png" alt="Cloudflare Bindings Explorer" width="128">
 </p>
 <br>
 <br>
@@ -23,7 +23,8 @@ A VSCode extension to browse and manage Cloudflare bindings (R2, KV, D1), AWS S3
 - Built with modern Node and Bun APIs
 
 ## Prerequisites
-- Bun (required for local Wrangler explorer and seed scripts)
+- Bun (required for development scripts and local env seeding)
+- Rust toolchain (required to build the bindings CLI used by local SQLite exploration)
 - VS Code (for extension development and testing)
 
 ## Local Wrangler Explorer
@@ -36,7 +37,7 @@ The **Wrangler Local** view scans your workspace for `.wrangler*` directories an
 Add a custom SQLite database with the `Add SQLite Database` action in the Wrangler Local view title bar.
 
 **Requirements:**
-- Bun must be installed and available on `PATH` for local Wrangler exploration.
+- Build the bindings CLI once via `bun run build:cli` (or `bun run compile`).
 
 To seed the sample local environment used in this repo:
 ```bash

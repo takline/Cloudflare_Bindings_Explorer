@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import {
-  BunNotFoundError,
+  LocalWranglerRuntimeNotFoundError,
   findWranglerRoots,
   listD1Databases,
   listD1Rows,
@@ -124,11 +124,11 @@ export class LocalWranglerExplorer
 
       return [];
     } catch (error) {
-      if (error instanceof BunNotFoundError) {
+      if (error instanceof LocalWranglerRuntimeNotFoundError) {
         return [
           new MessageNode(
-            "Bun runtime not found. Install Bun to explore local Wrangler storage.",
-            "Install Bun from https://bun.sh and ensure it is available on PATH."
+            "Local Wrangler runtime is unavailable.",
+            "Run `bun run build:cli` to build the bindings CLI for local SQLite exploration."
           ),
         ];
       }

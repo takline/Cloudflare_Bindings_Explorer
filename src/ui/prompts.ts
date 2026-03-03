@@ -3,6 +3,7 @@ import { S3Bucket } from "../types";
 import { listBuckets } from "../s3/listing";
 import { isValidS3Key, sanitizeS3Key, getFileName } from "../util/paths";
 import { getConfig, validateConfig } from "../s3/client";
+import { storeSecret } from "../util/secrets";
 
 export interface QuickPickBucket extends vscode.QuickPickItem {
   bucket: S3Bucket;
@@ -332,11 +333,11 @@ export async function promptForEndpoint(): Promise<string | undefined> {
 }
 
 export async function promptForConfigurationSetup(): Promise<boolean> {
-  if (process.env.S3X_TEST_MODE === "1") {
+  if (process.env.R2_TEST_MODE === "1") {
     return false;
   }
 
-  const config = getConfig();
+  const config = await getConfig();
   const errors = validateConfig(config);
 
   if (errors.length === 0) {
@@ -375,22 +376,19 @@ export async function promptForConfigurationSetup(): Promise<boolean> {
   }
 
   // Update configuration
-  const workspaceConfig = vscode.workspace.getConfiguration("s3x");
+  const workspaceConfig = vscode.workspace.getConfiguration("r2");
   await workspaceConfig.update(
     "endpointUrl",
     endpoint,
     vscode.ConfigurationTarget.Global
   );
-  await workspaceConfig.update(
-    "accessKeyId",
-    credentials.accessKeyId,
-    vscode.ConfigurationTarget.Global
-  );
-  await workspaceConfig.update(
-    "secretAccessKey",
-    credentials.secretAccessKey,
-    vscode.ConfigurationTarget.Global
-  );
+  // Store credentials securely via Bun.secrets
+  await storeSecret("r2.accessKeyId", credentials.accessKeyId);
+  // Clear the hardcoded setting if it exists
+  await workspaceConfig.update("accessKeyId", undefined, vscode.ConfigurationTarget.Global);
+  await storeSecret("r2.secretAccessKey", credentials.secretAccessKey);
+  // Clear the hardcoded setting if it exists
+  await workspaceConfig.update("secretAccessKey", undefined, vscode.ConfigurationTarget.Global);
 
   showInformationMessage("Cloudflare Bindings Explorer has been configured successfully!");
   return true;
