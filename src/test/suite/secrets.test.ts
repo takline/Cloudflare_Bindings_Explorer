@@ -56,6 +56,10 @@ describe("Secrets Wrapper (Unit)", () => {
         name: "r2.accessKeyId",
         value: "AKIA_TEST",
       },
+      {
+        action: "getSecret",
+        name: "r2.accessKeyId",
+      },
     ]);
   });
 
@@ -71,36 +75,56 @@ describe("Secrets Wrapper (Unit)", () => {
   });
 
   it("getSecret returns string values from runBindingsCli", async () => {
+    const secretName = "r2.secretAccessKey.stringValue";
     (bindingsClient as any).runBindingsCli = async (action: any) => {
       runBindingsCliCalls.push(action);
       return { value: "secret-value" };
     };
 
-    const value = await secrets.getSecret("r2.secretAccessKey");
+    const value = await secrets.getSecret(secretName);
 
     assert.strictEqual(value, "secret-value");
     assert.deepStrictEqual(runBindingsCliCalls, [
       {
         action: "getSecret",
-        name: "r2.secretAccessKey",
+        name: secretName,
       },
     ]);
   });
 
   it("getSecret returns null when result value is not a string", async () => {
+    const secretName = "r2.secretAccessKey.nonString";
     (bindingsClient as any).runBindingsCli = async () => ({ value: 42 });
 
-    const value = await secrets.getSecret("r2.secretAccessKey");
+    const value = await secrets.getSecret(secretName);
     assert.strictEqual(value, null);
   });
 
   it("getSecret returns null when runBindingsCli throws", async () => {
+    const secretName = "r2.secretAccessKey.throw";
     (bindingsClient as any).runBindingsCli = async () => {
       throw new Error("read failed");
     };
 
-    const value = await secrets.getSecret("r2.secretAccessKey");
+    const value = await secrets.getSecret(secretName);
     assert.strictEqual(value, null);
+  });
+
+  it("getSecret falls back to session cache when keyring read is unavailable", async () => {
+    let callCount = 0;
+    (bindingsClient as any).runBindingsCli = async (action: any) => {
+      callCount += 1;
+      // storeSecret writes + verifies
+      if (callCount <= 2) {
+        return {};
+      }
+      // subsequent getSecret read fails
+      throw new Error(`read failed for ${action?.name}`);
+    };
+
+    await secrets.storeSecret("r2.cacheTest", "cached-value");
+    const value = await secrets.getSecret("r2.cacheTest");
+    assert.strictEqual(value, "cached-value");
   });
 
   it("deleteSecret delegates to runBindingsCli with deleteSecret action", async () => {
