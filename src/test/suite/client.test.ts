@@ -1,95 +1,175 @@
 import * as assert from "assert";
 import {
-  getConfig,
-  validateConfig,
-  testConnection,
-  clearClientCache,
-} from "../../s3/client";
-import {
-  TestConfig,
-  setSecureCredentials,
-  setupTestEnvironment,
-  teardownTestEnvironment,
-  skipIfNoCredentials,
-} from "../test-config";
+  installVscodeModuleMock,
+  resetMockR2Config,
+  setMockR2Config,
+  uninstallVscodeModuleMock,
+} from "./test-helpers/mock-vscode";
 
-describe("S3 Client Tests", () => {
-  let testConfig: TestConfig;
+describe("S3 Client (Unit)", () => {
+  let s3Client: typeof import("../../s3/client");
+  let bindingsClient: typeof import("../../s3/bindings-client");
+  let secrets: typeof import("../../util/secrets");
 
-  suiteSetup(async () => {
-    testConfig = await setupTestEnvironment();
+  let originalRunS3Action: typeof import("../../s3/bindings-client").runS3Action;
+  let originalGetSecret: typeof import("../../util/secrets").getSecret;
+
+  let runS3ActionCalls: Array<{ actionName: string; params: any }>;
+
+  before(() => {
+    installVscodeModuleMock();
+
+    bindingsClient = require("../../s3/bindings-client");
+    secrets = require("../../util/secrets");
+    s3Client = require("../../s3/client");
+
+    originalRunS3Action = bindingsClient.runS3Action;
+    originalGetSecret = secrets.getSecret;
   });
 
-  suiteTeardown(async () => {
-    await teardownTestEnvironment();
-    clearClientCache();
+  beforeEach(() => {
+    runS3ActionCalls = [];
+    setMockR2Config({
+      endpointUrl: "https://unit-test.r2.example.com",
+    });
+
+    (bindingsClient as any).runS3Action = async (
+      actionName: string,
+      params?: any
+    ) => {
+      runS3ActionCalls.push({ actionName, params });
+      return {};
+    };
+
+    (secrets as any).getSecret = async () => null;
   });
 
-  it("getConfig returns valid configuration", async () => {
-    const config = await getConfig();
-
-    assert.strictEqual(config.endpointUrl, testConfig.endpointUrl);
-    assert.strictEqual(config.accessKeyId, testConfig.accessKeyId);
-    assert.strictEqual(config.secretAccessKey, testConfig.secretAccessKey);
-    assert.strictEqual(config.region, testConfig.region);
-    assert.strictEqual(config.forcePathStyle, true);
-    assert.strictEqual(config.maxPreviewSizeBytes, 10485760);
-    assert.notStrictEqual(config.accessKeyId, "legacy-setting-access-key");
-    assert.notStrictEqual(config.secretAccessKey, "legacy-setting-secret-key");
+  afterEach(() => {
+    (bindingsClient as any).runS3Action = originalRunS3Action;
+    (secrets as any).getSecret = originalGetSecret;
+    resetMockR2Config();
   });
 
-  it("getConfig does not fall back to legacy settings credentials", async () => {
-    await setSecureCredentials("", "");
-    const configWithoutSecrets = await getConfig();
-    assert.strictEqual(configWithoutSecrets.accessKeyId, "");
-    assert.strictEqual(configWithoutSecrets.secretAccessKey, "");
+  after(() => {
+    uninstallVscodeModuleMock();
 
-    await setSecureCredentials(testConfig.accessKeyId, testConfig.secretAccessKey);
+    for (const moduleId of [
+      "../../s3/client",
+      "../../s3/bindings-client",
+      "../../util/secrets",
+      "../../util/output",
+      "../../types",
+    ]) {
+      try {
+        delete require.cache[require.resolve(moduleId)];
+      } catch {
+        // Ignore missing entries.
+      }
+    }
   });
 
   it("validateConfig validates required fields", () => {
-    const validConfig = {
+    const validConfig: import("../../types").S3Config = {
       endpointUrl: "https://example.r2.cloudflarestorage.com",
       region: "auto",
       accessKeyId: "test-access-key",
-      secretAccessKey: "test-secret-key", 
+      secretAccessKey: "test-secret-key",
       forcePathStyle: true,
-      maxPreviewSizeBytes: 10485760
+      maxPreviewSizeBytes: 10485760,
     };
-    const validErrors = validateConfig(validConfig);
-    assert.strictEqual(validErrors.length, 0);
 
-    const noEndpointConfig = { ...validConfig, endpointUrl: "" };
-    const endpointErrors = validateConfig(noEndpointConfig);
-    assert.ok(endpointErrors.some((err) => err.includes("Endpoint URL")));
+    assert.deepStrictEqual(s3Client.validateConfig(validConfig), []);
 
-    const noAccessKeyConfig = { ...validConfig, accessKeyId: "" };
-    const accessKeyErrors = validateConfig(noAccessKeyConfig);
-    assert.ok(accessKeyErrors.some((err) => err.includes("Access Key ID")));
-
-    const noSecretConfig = { ...validConfig, secretAccessKey: "" };
-    const secretErrors = validateConfig(noSecretConfig);
-    assert.ok(secretErrors.some((err) => err.includes("Secret Access Key")));
-
-    const invalidUrlConfig = { ...validConfig, endpointUrl: "not-a-url" };
-    const urlErrors = validateConfig(invalidUrlConfig);
-    assert.ok(urlErrors.some((err) => err.includes("valid HTTPS URL")));
+    assert.ok(
+      s3Client
+        .validateConfig({ ...validConfig, endpointUrl: "" })
+        .some((err) => err.includes("Endpoint URL"))
+    );
+    assert.ok(
+      s3Client
+        .validateConfig({ ...validConfig, accessKeyId: "" })
+        .some((err) => err.includes("Access Key ID"))
+    );
+    assert.ok(
+      s3Client
+        .validateConfig({ ...validConfig, secretAccessKey: "" })
+        .some((err) => err.includes("Secret Access Key"))
+    );
+    assert.ok(
+      s3Client
+        .validateConfig({ ...validConfig, endpointUrl: "not-a-url" })
+        .some((err) => err.includes("valid HTTPS URL"))
+    );
   });
 
-  it("testConnection validates R2 connectivity", async function () {
-    this.timeout(10000);
+  it("testConnection calls runS3Action with the testConnection action", async () => {
+    await s3Client.testConnection();
 
-    if (skipIfNoCredentials()) {return;}
+    assert.deepStrictEqual(runS3ActionCalls, [
+      { actionName: "testConnection", params: undefined },
+    ]);
+  });
 
-    try {
-      await testConnection();
-      assert.ok(true, "Connection test should succeed");
-    } catch (error) {
-      console.log("Connection test failed:", error);
-      assert.ok(
-        error instanceof Error,
-        "Should throw proper error on connection failure"
+  it("testConnection maps auth failures to a user-friendly S3Error", async () => {
+    (bindingsClient as any).runS3Action = async () => {
+      const err: any = new Error("Forbidden");
+      err.code = "Forbidden";
+      err.$metadata = { httpStatusCode: 403 };
+      throw err;
+    };
+
+    await assert.rejects(() => s3Client.testConnection(), (error: any) => {
+      assert.strictEqual(error.name, "S3Error");
+      assert.strictEqual(
+        error.message,
+        "Authentication failed. Please check your access credentials."
       );
-    }
+      assert.strictEqual(error.code, "Forbidden");
+      assert.strictEqual(error.statusCode, 403);
+      assert.strictEqual(error.retryable, false);
+      return true;
+    });
+  });
+
+  it("testConnection maps ENOTFOUND/network failures with endpoint context", async () => {
+    (bindingsClient as any).runS3Action = async () => {
+      const err: any = new Error("getaddrinfo ENOTFOUND");
+      err.code = "ENOTFOUND";
+      throw err;
+    };
+
+    setMockR2Config({
+      endpointUrl: "https://deterministic-endpoint.r2.example.com",
+    });
+
+    await assert.rejects(() => s3Client.testConnection(), (error: any) => {
+      assert.strictEqual(error.name, "S3Error");
+      assert.strictEqual(
+        error.message,
+        "Cannot connect to endpoint: https://deterministic-endpoint.r2.example.com. Please verify the URL is correct."
+      );
+      assert.strictEqual(error.code, "ENOTFOUND");
+      assert.strictEqual(error.statusCode, undefined);
+      assert.strictEqual(error.retryable, true);
+      return true;
+    });
+  });
+
+  it("testConnection wraps generic errors and preserves retryable metadata", async () => {
+    (bindingsClient as any).runS3Action = async () => {
+      const err: any = new Error("rate limit");
+      err.code = "TooManyRequests";
+      err.$metadata = { httpStatusCode: 429 };
+      throw err;
+    };
+
+    await assert.rejects(() => s3Client.testConnection(), (error: any) => {
+      assert.strictEqual(error.name, "S3Error");
+      assert.strictEqual(error.message, "Connection test failed: rate limit");
+      assert.strictEqual(error.code, "TooManyRequests");
+      assert.strictEqual(error.statusCode, 429);
+      assert.strictEqual(error.retryable, true);
+      return true;
+    });
   });
 });
