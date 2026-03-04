@@ -11,6 +11,8 @@ on:
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    env:
+      OP_SERVICE_ACCOUNT_TOKEN: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,6 +27,15 @@ jobs:
 
       - name: Install xvfb
         run: sudo apt-get update && sudo apt-get install -y xvfb
+
+      - name: Load R2 Test Credentials
+        if: ${{ github.event.inputs.run_r2_live_tests == '1' }}
+        uses: 1password/load-secrets-action@v2
+        env:
+          R2_ENDPOINT_URL: op://Tyler/Cloudflare/R2_URL
+          R2_ACCESS_KEY_ID: op://Tyler/Cloudflare/R2_ACCESS_KEY_ID
+          R2_SECRET_ACCESS_KEY: op://Tyler/Cloudflare/R2_SECRET_ACCESS_KEY
+          R2_TEST_BUCKET: op://Tyler/Cloudflare/R2_TEST_BUCKET
 
       - name: VS Code Smoke Tests
         env:

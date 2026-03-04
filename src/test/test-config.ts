@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { initBindingsCliClient } from "../bindings/client";
 import { deleteSecret, getSecret, storeSecret } from "../util/secrets";
 
 export interface TestConfig {
@@ -7,6 +8,7 @@ export interface TestConfig {
   secretAccessKey: string;
   region: string;
   testBucketPrefix: string;
+  testBucketName?: string;
 }
 
 /**
@@ -15,11 +17,12 @@ export interface TestConfig {
  */
 export function getTestConfig(): TestConfig {
   return {
-    endpointUrl: process.env.R2_ENDPOINT_URL || "",
+    endpointUrl: process.env.R2_ENDPOINT_URL || process.env.R2_URL || "",
     accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
     region: process.env.R2_REGION || "auto",
     testBucketPrefix: "r2-test-ci",
+    testBucketName: process.env.R2_TEST_BUCKET || process.env.R2_BUCKET,
   };
 }
 
@@ -100,6 +103,16 @@ let originalGetConfiguration:
 let originalSecrets:
   | { accessKeyId: string | null; secretAccessKey: string | null }
   | undefined;
+let didInitBindingsCli = false;
+
+function ensureBindingsCliInitialized(): void {
+  if (didInitBindingsCli) {
+    return;
+  }
+
+  initBindingsCliClient(process.cwd());
+  didInitBindingsCli = true;
+}
 
 export async function setSecureCredentials(
   accessKeyId: string,
@@ -123,6 +136,7 @@ export async function setSecureCredentials(
  */
 export async function setupTestEnvironment(): Promise<TestConfig> {
   const testConfig = getTestConfig();
+  ensureBindingsCliInitialized();
 
   if (!originalSecrets) {
     originalSecrets = {
@@ -174,7 +188,11 @@ export async function teardownTestEnvironment() {
  */
 export function hasValidTestCredentials(): boolean {
   const config = getTestConfig();
-  return !!(config.endpointUrl && config.accessKeyId && config.secretAccessKey);
+  return !!(
+    config.endpointUrl.trim() &&
+    config.accessKeyId.trim() &&
+    config.secretAccessKey.trim()
+  );
 }
 
 /**
@@ -186,4 +204,31 @@ export function skipIfNoCredentials() {
     return true;
   }
   return false;
+}
+
+/**
+ * Throws with a concrete message when live-test credentials are incomplete.
+ */
+export function assertValidLiveTestConfig(
+  config: TestConfig = getTestConfig()
+): TestConfig {
+  const missing: string[] = [];
+
+  if (!config.endpointUrl.trim()) {
+    missing.push("R2_ENDPOINT_URL (or R2_URL)");
+  }
+  if (!config.accessKeyId.trim()) {
+    missing.push("R2_ACCESS_KEY_ID");
+  }
+  if (!config.secretAccessKey.trim()) {
+    missing.push("R2_SECRET_ACCESS_KEY");
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Live R2 tests require credentials. Missing: ${missing.join(", ")}.`
+    );
+  }
+
+  return config;
 }

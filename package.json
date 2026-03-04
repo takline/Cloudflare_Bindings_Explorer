@@ -388,6 +388,7 @@
     "test": "bun ./out/test/runTest.js",
     "test:unit:deterministic": "bun run compile:tests && node ./out/test/runUnitTests.js",
     "test:unit": "bun run test:unit:deterministic",
+    "test:e2e:r2": "RUN_R2_LIVE_TESTS=1 bun run build:cli && RUN_R2_LIVE_TESTS=1 bun run test:unit:deterministic",
     "test:rust": "cd src-rust/bindings-cli && cargo test --locked",
     "package": "bun run clean && bun run build:cli && bun run build --production && vsce package",
     "package:prerelease": "bun run clean && bun run compile && vsce package --pre-release",
