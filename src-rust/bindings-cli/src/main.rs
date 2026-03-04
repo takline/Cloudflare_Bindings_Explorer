@@ -1229,9 +1229,31 @@ async fn list_d1_rows(sqlite_path: &str, table: &str) -> anyhow::Result<D1RowsRe
 #[cfg(test)]
 mod tests {
     use super::{list_storage_types, list_wrangler_roots};
+    use std::collections::BTreeSet;
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDirGuard {
+        path: PathBuf,
+    }
+
+    impl TempDirGuard {
+        fn new() -> Self {
+            let path = PathBuf::from(new_temp_root());
+            Self { path }
+        }
+
+        fn path(&self) -> &Path {
+            &self.path
+        }
+    }
+
+    impl Drop for TempDirGuard {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
 
     fn new_temp_root() -> String {
         let nonce = SystemTime::now()
@@ -1257,8 +1279,8 @@ mod tests {
 
     #[test]
     fn list_wrangler_roots_only_includes_candidates_with_storage_files() {
-        let root = new_temp_root();
-        let root_path = Path::new(&root);
+        let root = TempDirGuard::new();
+        let root_path = root.path();
 
         create_dir(root_path, ".wrangler");
         create_file(
@@ -1271,11 +1293,15 @@ mod tests {
             "wrangler/state/v3/d1/miniflare-D1DatabaseObject/demo.sqlite",
             "d1-data",
         );
+        create_dir(
+            root_path,
+            "wrangler-dirs-only/state/v3/d1/miniflare-D1DatabaseObject",
+        );
         create_dir(root_path, "wrangler-cache");
         create_dir(root_path, "something-else");
 
-        let found = list_wrangler_roots(&[root.clone()]);
-        let found_set = found.into_iter().collect::<std::collections::BTreeSet<_>>();
+        let found = list_wrangler_roots(&[root_path.to_string_lossy().to_string()]);
+        let found_set = found.into_iter().collect::<BTreeSet<_>>();
 
         assert!(found_set.contains(
             &root_path
@@ -1303,20 +1329,74 @@ mod tests {
         ));
         assert!(!found_set.contains(
             &root_path
+                .join("wrangler-dirs-only")
+                .to_string_lossy()
+                .to_string()
+        ));
+        assert!(!found_set.contains(
+            &root_path
                 .join("something-else")
                 .to_string_lossy()
                 .to_string()
         ));
-
-        fs::remove_dir_all(root_path).expect("failed to remove temp directory");
     }
 
     #[test]
-    fn list_storage_types_only_reports_types_with_real_files() {
-        let root = new_temp_root();
-        let root_path = Path::new(&root);
+    fn list_wrangler_roots_skips_node_modules_candidates() {
+        let root = TempDirGuard::new();
+        let root_path = root.path();
 
-        create_dir(root_path, ".wrangler-state/state/v3/kv/miniflare-KVNamespaceObject");
+        create_file(
+            root_path,
+            ".wrangler-state/state/v3/kv/demo-namespace/blobs/blob.bin",
+            "kv-data",
+        );
+        create_file(
+            root_path,
+            "node_modules/dependency/.wrangler-local/state/v3/r2/demo-bucket/blobs/blob.bin",
+            "ignored-r2-data",
+        );
+
+        let found = list_wrangler_roots(&[root_path.to_string_lossy().to_string()]);
+        let found_set = found.into_iter().collect::<BTreeSet<_>>();
+
+        assert!(found_set.contains(
+            &root_path
+                .join(".wrangler-state")
+                .to_string_lossy()
+                .to_string()
+        ));
+        assert!(!found_set.contains(
+            &root_path
+                .join("node_modules")
+                .join("dependency")
+                .join(".wrangler-local")
+                .to_string_lossy()
+                .to_string()
+        ));
+    }
+
+    #[test]
+    fn list_storage_types_requires_real_files_per_storage_type() {
+        let root = TempDirGuard::new();
+        let root_path = root.path();
+        let wrangler_root = root_path.join(".wrangler-state");
+
+        create_dir(root_path, ".wrangler-state/state/v3/kv/demo-namespace/blobs");
+        create_dir(root_path, ".wrangler-state/state/v3/d1/miniflare-D1DatabaseObject");
+        create_dir(root_path, ".wrangler-state/state/v3/r2/demo-bucket/blobs");
+
+        let empty_result = list_storage_types(wrangler_root.to_string_lossy().as_ref());
+        assert!(empty_result.types.is_empty());
+
+        create_file(
+            root_path,
+            ".wrangler-state/state/v3/kv/demo-namespace/blobs/kv.bin",
+            "kv-data",
+        );
+        let kv_only_result = list_storage_types(wrangler_root.to_string_lossy().as_ref());
+        assert_eq!(kv_only_result.types, vec!["kv".to_string()]);
+
         create_file(
             root_path,
             ".wrangler-state/state/v3/d1/miniflare-D1DatabaseObject/demo.sqlite",
@@ -1327,13 +1407,11 @@ mod tests {
             ".wrangler-state/state/v3/r2/demo-bucket/blobs/blob.bin",
             "r2-data",
         );
-
-        let wrangler_root = root_path.join(".wrangler-state");
-        let result = list_storage_types(wrangler_root.to_string_lossy().as_ref());
-
-        assert_eq!(result.types, vec!["d1".to_string(), "r2".to_string()]);
-
-        fs::remove_dir_all(root_path).expect("failed to remove temp directory");
+        let full_result = list_storage_types(wrangler_root.to_string_lossy().as_ref());
+        assert_eq!(
+            full_result.types,
+            vec!["kv".to_string(), "d1".to_string(), "r2".to_string()]
+        );
     }
 }
 
