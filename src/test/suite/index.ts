@@ -10,6 +10,7 @@ export function run(): Promise<void> {
   });
 
   const testsRoot = path.resolve(__dirname, "..");
+  const runLiveR2Tests = process.env.RUN_R2_LIVE_TESTS === "1";
 
   return new Promise((resolve, reject) => {
     // Use require instead of import for glob to avoid TypeScript issues
@@ -23,10 +24,26 @@ export function run(): Promise<void> {
       );
     }
 
-    const files = globSync("**/**.test.js", { cwd: testsRoot }) as string[];
+    const files = (globSync("**/*.test.js", { cwd: testsRoot }) as string[])
+      .sort((a: string, b: string) => a.localeCompare(b));
+
+    const integrationTests = files.filter((f: string) =>
+      f.endsWith("integration.test.js")
+    );
+    const selectedFiles = files.filter(
+      (f: string) => runLiveR2Tests || !f.endsWith("integration.test.js")
+    );
+
+    if (!runLiveR2Tests && integrationTests.length > 0) {
+      console.log(
+        "Skipping live R2 integration tests. Set RUN_R2_LIVE_TESTS=1 to enable."
+      );
+    }
 
     // Add files to the test suite
-    files.forEach((f: string) => mocha.addFile(path.resolve(testsRoot, f)));
+    selectedFiles.forEach((f: string) =>
+      mocha.addFile(path.resolve(testsRoot, f))
+    );
 
     try {
       // Run the mocha test
