@@ -23,6 +23,58 @@ type ModuleLoad = (
 
 let originalLoad: ModuleLoad | null = null;
 
+class ThemeIcon {
+  constructor(public readonly id: string) {}
+}
+
+class TreeItem {
+  label: string | { label: string };
+  collapsibleState: number;
+  contextValue?: string;
+  iconPath?: ThemeIcon;
+  tooltip?: string;
+  description?: string;
+  command?: { command: string; title: string; arguments?: unknown[] };
+
+  constructor(label: string | { label: string }, collapsibleState: number) {
+    this.label = label;
+    this.collapsibleState = collapsibleState;
+  }
+}
+
+class EventEmitter<T = unknown> {
+  private listeners: Array<(event: T) => unknown> = [];
+
+  readonly event = (listener: (event: T) => unknown) => {
+    this.listeners.push(listener);
+    return {
+      dispose: () => {
+        this.listeners = this.listeners.filter(
+          (existing) => existing !== listener
+        );
+      },
+    };
+  };
+
+  fire(event: T): void {
+    for (const listener of this.listeners) {
+      listener(event);
+    }
+  }
+
+  dispose(): void {
+    this.listeners = [];
+  }
+}
+
+class Uri {
+  constructor(public readonly fsPath: string) {}
+
+  static file(fsPath: string): Uri {
+    return new Uri(fsPath);
+  }
+}
+
 const outputChannel = {
   appendLine(_line: string): void {
     // Intentionally no-op for deterministic unit tests.
@@ -33,12 +85,43 @@ const outputChannel = {
 };
 
 const vscodeMock = {
+  TreeItem,
+  ThemeIcon,
+  EventEmitter,
+  Uri,
+  TreeItemCollapsibleState: {
+    None: 0,
+    Collapsed: 1,
+    Expanded: 2,
+  },
+  ViewColumn: {
+    Active: 1,
+  },
+  ConfigurationTarget: {
+    Global: 1,
+    Workspace: 2,
+    WorkspaceFolder: 3,
+  },
   window: {
     createOutputChannel() {
       return outputChannel;
     },
+    showErrorMessage: async () => undefined,
+    showInformationMessage: async () => undefined,
+    showQuickPick: async () => undefined,
+    createTreeView: () => ({ dispose() {} }),
+    createWebviewPanel: () => ({
+      webview: {
+        html: "",
+        onDidReceiveMessage: () => ({ dispose() {} }),
+        postMessage: async () => true,
+      },
+      onDidDispose: () => ({ dispose() {} }),
+      dispose() {},
+    }),
   },
   workspace: {
+    workspaceFolders: undefined as unknown,
     getConfiguration(_section?: string) {
       return {
         get<T>(key: string, defaultValue?: T): T {
@@ -47,8 +130,14 @@ const vscodeMock = {
           }
           return defaultValue as T;
         },
+        update: async () => undefined,
       };
     },
+    registerFileSystemProvider: () => ({ dispose() {} }),
+  },
+  commands: {
+    executeCommand: async () => undefined,
+    registerCommand: () => ({ dispose() {} }),
   },
 };
 

@@ -15,16 +15,17 @@ describe("S3 Listing (Unit)", () => {
     installVscodeModuleMock();
 
     bindingsClient = require("../../s3/bindings-client");
-    listing = require("../../s3/listing");
     originalRunS3Action = bindingsClient.runS3Action;
   });
 
   beforeEach(() => {
     runS3ActionCalls = [];
+    delete require.cache[require.resolve("../../s3/listing")];
   });
 
   afterEach(() => {
     (bindingsClient as any).runS3Action = originalRunS3Action;
+    delete require.cache[require.resolve("../../s3/listing")];
   });
 
   after(() => {
@@ -63,6 +64,7 @@ describe("S3 Listing (Unit)", () => {
       };
     };
 
+    listing = require("../../s3/listing");
     const buckets = await listing.listBuckets();
 
     assert.deepStrictEqual(runS3ActionCalls, [
@@ -85,6 +87,7 @@ describe("S3 Listing (Unit)", () => {
       throw err;
     };
 
+    listing = require("../../s3/listing");
     await assert.rejects(() => listing.listBuckets(), (error: any) => {
       assert.strictEqual(error.name, "S3Error");
       assert.strictEqual(error.message, "Failed to list buckets: request failed");
