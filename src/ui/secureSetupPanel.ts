@@ -1,20 +1,22 @@
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
 import { getConfig } from "../s3/client";
-import { storeSecret } from "../util/secrets";
+import { getSecret, storeSecret } from "../util/secrets";
 
 export interface SecureSetupState {
-  endpointUrl: string;
+  userId: string;
   region: string;
   hasAccessKeyId: boolean;
   hasSecretAccessKey: boolean;
+  hasApiToken: boolean;
 }
 
 export interface SecureSetupPayload {
-  endpointUrl: string;
+  userId: string;
   region: string;
   accessKeyId: string;
   secretAccessKey: string;
+  apiToken: string;
 }
 
 type SecureSetupMessage =
@@ -28,17 +30,27 @@ type SecureSetupMessage =
 
 export async function openSecureSetupPanel(): Promise<boolean> {
   const currentConfig = await getConfig();
+  const cloudflareConfig = vscode.workspace.getConfiguration("cloudflare");
+  const cloudflareApiToken = await getSecret("cloudflare.apiToken");
+  const configuredAccountId = (
+    cloudflareConfig.get<string>("accountId", "") || ""
+  ).trim();
+  const inferredUserId =
+    configuredAccountId ||
+    extractUserIdFromEndpoint(currentConfig.endpointUrl) ||
+    "";
   const state: SecureSetupState = {
-    endpointUrl: currentConfig.endpointUrl,
+    userId: inferredUserId,
     region: currentConfig.region || "auto",
     hasAccessKeyId: Boolean(currentConfig.accessKeyId),
     hasSecretAccessKey: Boolean(currentConfig.secretAccessKey),
+    hasApiToken: Boolean(cloudflareApiToken),
   };
 
   return new Promise<boolean>((resolve) => {
     const panel = vscode.window.createWebviewPanel(
       "r2SecureSetup",
-      "Update R2 Endpoint & Credentials",
+      "Update R2 Credentials",
       vscode.ViewColumn.Active,
       {
         enableScripts: true,
@@ -85,9 +97,10 @@ export async function openSecureSetupPanel(): Promise<boolean> {
         }
 
         const workspaceConfig = vscode.workspace.getConfiguration("r2");
+        const inferredEndpointUrl = inferR2EndpointUrl(payload.userId);
         await workspaceConfig.update(
           "endpointUrl",
-          payload.endpointUrl,
+          inferredEndpointUrl,
           vscode.ConfigurationTarget.Global
         );
         await workspaceConfig.update(
@@ -95,6 +108,13 @@ export async function openSecureSetupPanel(): Promise<boolean> {
           payload.region || "auto",
           vscode.ConfigurationTarget.Global
         );
+        await vscode.workspace
+          .getConfiguration("cloudflare")
+          .update(
+            "accountId",
+            payload.userId,
+            vscode.ConfigurationTarget.Global
+          );
 
         if (payload.accessKeyId) {
           await storeSecret("r2.accessKeyId", payload.accessKeyId);
@@ -102,11 +122,14 @@ export async function openSecureSetupPanel(): Promise<boolean> {
         if (payload.secretAccessKey) {
           await storeSecret("r2.secretAccessKey", payload.secretAccessKey);
         }
+        if (payload.apiToken) {
+          await storeSecret("cloudflare.apiToken", payload.apiToken);
+        }
 
         settle(true);
         panel.dispose();
         vscode.window.showInformationMessage(
-          "R2 endpoint and credentials were updated securely."
+          "R2 credentials were updated securely."
         );
       } catch (error) {
         const messageText =
@@ -125,10 +148,11 @@ export function normalizePayload(
   payload: Partial<SecureSetupPayload> | undefined
 ): SecureSetupPayload {
   return {
-    endpointUrl: (payload?.endpointUrl || "").trim(),
+    userId: (payload?.userId || "").trim(),
     region: ((payload?.region || "").trim() || "auto").trim(),
     accessKeyId: (payload?.accessKeyId || "").trim(),
     secretAccessKey: (payload?.secretAccessKey || "").trim(),
+    apiToken: (payload?.apiToken || "").trim(),
   };
 }
 
@@ -136,12 +160,12 @@ export function validateSecureSetupPayload(
   payload: SecureSetupPayload,
   currentState: SecureSetupState
 ): string | undefined {
-  if (!payload.endpointUrl) {
-    return "Endpoint URL is required.";
+  if (!payload.userId) {
+    return "User ID is required.";
   }
 
-  if (!isValidHttpsUrl(payload.endpointUrl)) {
-    return "Endpoint URL must be a valid HTTPS URL.";
+  if (!isValidUserId(payload.userId)) {
+    return "User ID must contain only letters, numbers, and hyphens.";
   }
 
   const hasAccessKeyId = Boolean(payload.accessKeyId) || currentState.hasAccessKeyId;
@@ -159,18 +183,52 @@ export function validateSecureSetupPayload(
   return undefined;
 }
 
-function isValidHttpsUrl(url: string): boolean {
+function isValidUserId(userId: string): boolean {
+  return /^[a-zA-Z0-9-]+$/.test(userId);
+}
+
+export function inferR2EndpointUrl(userId: string): string {
+  return `https://${userId.toLowerCase()}.r2.cloudflarestorage.com`;
+}
+
+function extractUserIdFromEndpoint(endpointUrl: string): string | undefined {
   try {
-    const parsed = new URL(url);
-    return parsed.protocol === "https:";
+    const parsed = new URL(endpointUrl);
+    if (parsed.protocol !== "https:") {
+      return undefined;
+    }
+
+    const hostParts = parsed.hostname.split(".");
+    if (hostParts.length < 4) {
+      return undefined;
+    }
+
+    if (hostParts[hostParts.length - 3] !== "r2") {
+      return undefined;
+    }
+
+    if (hostParts[hostParts.length - 2] !== "cloudflarestorage") {
+      return undefined;
+    }
+
+    if (hostParts[hostParts.length - 1] !== "com") {
+      return undefined;
+    }
+
+    const userId = hostParts[0];
+    if (!isValidUserId(userId)) {
+      return undefined;
+    }
+
+    return userId;
   } catch {
-    return false;
+    return undefined;
   }
 }
 
 function getSecureSetupHtml(state: SecureSetupState): string {
   const nonce = getNonce();
-  const endpointUrl = escapeHtml(state.endpointUrl);
+  const userId = escapeHtml(state.userId || "");
   const region = escapeHtml(state.region || "auto");
   const accessKeyPlaceholder = state.hasAccessKeyId
     ? "******** (stored securely)"
@@ -178,6 +236,9 @@ function getSecureSetupHtml(state: SecureSetupState): string {
   const secretKeyPlaceholder = state.hasSecretAccessKey
     ? "******** (stored securely)"
     : "Enter Secret Access Key";
+  const apiTokenPlaceholder = state.hasApiToken
+    ? "******** (stored securely)"
+    : "Enter Cloudflare API Token";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -188,7 +249,7 @@ function getSecureSetupHtml(state: SecureSetupState): string {
       content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}';"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Update R2 Endpoint & Credentials</title>
+    <title>Update R2 Credentials</title>
     <style nonce="${nonce}">
       body {
         font-family: var(--vscode-font-family);
@@ -254,22 +315,26 @@ function getSecureSetupHtml(state: SecureSetupState): string {
     </style>
   </head>
   <body>
-    <h1>Update R2 Endpoint & Credentials</h1>
+    <h1>Update R2 Credentials</h1>
     <p>
       Credentials are stored in your system keyring and are never shown in
       plaintext. Existing values are shown only as <strong>********</strong>.
+      Your User ID is used to infer the R2 endpoint and remote D1/KV account.
     </p>
     <form id="secure-form">
       <div class="field">
-        <label for="endpointUrl">Endpoint URL</label>
+        <label for="userId">User ID</label>
         <input
-          id="endpointUrl"
-          type="url"
-          value="${endpointUrl}"
-          placeholder="https://your-account.r2.cloudflarestorage.com"
+          id="userId"
+          type="text"
+          value="${userId}"
+          placeholder="Cloudflare account/user ID"
           autocomplete="off"
           required
         />
+        <div class="hint">
+          Endpoint is inferred as <code>https://&lt;userId&gt;.r2.cloudflarestorage.com</code>.
+        </div>
       </div>
       <div class="field">
         <label for="region">Region</label>
@@ -305,6 +370,18 @@ function getSecureSetupHtml(state: SecureSetupState): string {
           Leave blank to keep the currently stored value.
         </div>
       </div>
+      <div class="field">
+        <label for="apiToken">Cloudflare API Token (Optional, for D1/KV)</label>
+        <input
+          id="apiToken"
+          type="password"
+          placeholder="${apiTokenPlaceholder}"
+          autocomplete="new-password"
+        />
+        <div class="hint">
+          Leave blank to keep the currently stored value.
+        </div>
+      </div>
       <div id="error" role="alert" aria-live="polite"></div>
       <div class="actions">
         <button id="cancel" type="button">Cancel</button>
@@ -317,10 +394,11 @@ function getSecureSetupHtml(state: SecureSetupState): string {
       const saveButton = document.getElementById("save");
       const cancelButton = document.getElementById("cancel");
       const errorElement = document.getElementById("error");
-      const endpointInput = document.getElementById("endpointUrl");
+      const userIdInput = document.getElementById("userId");
       const regionInput = document.getElementById("region");
       const accessKeyInput = document.getElementById("accessKeyId");
       const secretKeyInput = document.getElementById("secretAccessKey");
+      const apiTokenInput = document.getElementById("apiToken");
 
       const setSaving = (saving) => {
         saveButton.disabled = saving;
@@ -338,10 +416,11 @@ function getSecureSetupHtml(state: SecureSetupState): string {
         vscode.postMessage({
           type: "save",
           payload: {
-            endpointUrl: endpointInput.value,
+            userId: userIdInput.value,
             region: regionInput.value,
             accessKeyId: accessKeyInput.value,
             secretAccessKey: secretKeyInput.value,
+            apiToken: apiTokenInput.value,
           },
         });
       });

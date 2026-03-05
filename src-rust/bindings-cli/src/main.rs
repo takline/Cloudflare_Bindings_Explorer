@@ -1,6 +1,8 @@
 use anyhow::Context;
 use keyring::{Entry as KeyringEntry, Error as KeyringError};
 use opendal::{Operator, services};
+use reqwest::{Client, Url};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 use sqlx::sqlite::{SqliteConnectOptions, SqliteConnection, SqliteRow};
@@ -9,6 +11,7 @@ use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 #[derive(Deserialize, Debug)]
 #[serde(tag = "action")]
@@ -87,6 +90,75 @@ enum Action {
         #[serde(rename = "sqlitePath")]
         sqlite_path: String,
         table: String,
+    },
+    #[serde(rename = "listRemoteD1Databases")]
+    ListRemoteD1Databases {
+        #[serde(rename = "accountId")]
+        account_id: String,
+        #[serde(rename = "apiToken")]
+        api_token: String,
+        page: Option<u32>,
+        #[serde(rename = "perPage")]
+        per_page: Option<u32>,
+    },
+    #[serde(rename = "materializeRemoteD1Database")]
+    MaterializeRemoteD1Database {
+        #[serde(rename = "accountId")]
+        account_id: String,
+        #[serde(rename = "apiToken")]
+        api_token: String,
+        #[serde(rename = "databaseId")]
+        database_id: String,
+        #[serde(rename = "databaseName")]
+        database_name: Option<String>,
+        #[serde(rename = "forceRefresh")]
+        force_refresh: Option<bool>,
+        #[serde(rename = "maxTables")]
+        max_tables: Option<usize>,
+        #[serde(rename = "maxRowsPerTable")]
+        max_rows_per_table: Option<usize>,
+    },
+    #[serde(rename = "executeRemoteD1Sql")]
+    ExecuteRemoteD1Sql {
+        #[serde(rename = "accountId")]
+        account_id: String,
+        #[serde(rename = "apiToken")]
+        api_token: String,
+        #[serde(rename = "databaseId")]
+        database_id: String,
+        sql: String,
+    },
+    #[serde(rename = "listRemoteKvNamespaces")]
+    ListRemoteKvNamespaces {
+        #[serde(rename = "accountId")]
+        account_id: String,
+        #[serde(rename = "apiToken")]
+        api_token: String,
+        page: Option<u32>,
+        #[serde(rename = "perPage")]
+        per_page: Option<u32>,
+    },
+    #[serde(rename = "listRemoteKvEntries")]
+    ListRemoteKvEntries {
+        #[serde(rename = "accountId")]
+        account_id: String,
+        #[serde(rename = "apiToken")]
+        api_token: String,
+        #[serde(rename = "namespaceId")]
+        namespace_id: String,
+        prefix: Option<String>,
+        cursor: Option<String>,
+        limit: Option<u32>,
+    },
+    #[serde(rename = "readRemoteKvValue")]
+    ReadRemoteKvValue {
+        #[serde(rename = "accountId")]
+        account_id: String,
+        #[serde(rename = "apiToken")]
+        api_token: String,
+        #[serde(rename = "namespaceId")]
+        namespace_id: String,
+        key: String,
     },
     #[serde(rename = "setSecret")]
     SetSecret { name: String, value: String },
@@ -237,6 +309,86 @@ struct D1RowsResult {
 }
 
 #[derive(Serialize)]
+struct RemoteD1DatabasesResult {
+    databases: Vec<RemoteD1DatabaseInfo>,
+    page: u32,
+    #[serde(rename = "hasMore")]
+    has_more: bool,
+}
+
+#[derive(Serialize)]
+struct RemoteD1DatabaseInfo {
+    id: String,
+    name: String,
+    #[serde(rename = "createdAt", skip_serializing_if = "Option::is_none")]
+    created_at: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RemoteD1SnapshotResult {
+    #[serde(rename = "sqlitePath")]
+    sqlite_path: String,
+    #[serde(rename = "fromCache")]
+    from_cache: bool,
+    #[serde(rename = "tableCount")]
+    table_count: usize,
+    #[serde(rename = "rowLimit")]
+    row_limit: usize,
+    #[serde(rename = "databaseId")]
+    database_id: String,
+    #[serde(rename = "databaseName")]
+    database_name: String,
+}
+
+#[derive(Serialize)]
+struct RemoteD1QueryResult {
+    rows: Vec<JsonMap<String, JsonValue>>,
+}
+
+#[derive(Serialize)]
+struct RemoteKvNamespacesResult {
+    namespaces: Vec<RemoteKvNamespaceInfo>,
+    page: u32,
+    #[serde(rename = "hasMore")]
+    has_more: bool,
+}
+
+#[derive(Serialize)]
+struct RemoteKvNamespaceInfo {
+    id: String,
+    title: String,
+    #[serde(
+        rename = "supportsUrlEncoding",
+        skip_serializing_if = "Option::is_none"
+    )]
+    supports_url_encoding: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct RemoteKvListResult {
+    prefixes: Vec<PrefixInfo>,
+    entries: Vec<RemoteKvEntryInfo>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cursor: Option<String>,
+    #[serde(rename = "isTruncated")]
+    is_truncated: bool,
+}
+
+#[derive(Serialize)]
+struct RemoteKvEntryInfo {
+    key: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expiration: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    metadata: Option<String>,
+}
+
+#[derive(Serialize)]
+struct RemoteKvValueResult {
+    content: String,
+}
+
+#[derive(Serialize)]
 struct SecretResult {
     value: Option<String>,
 }
@@ -245,6 +397,57 @@ struct SecretResult {
 struct WranglerD1Config {
     database_name: Option<String>,
     binding: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CloudflareEnvelope<T> {
+    success: bool,
+    result: T,
+    #[serde(default)]
+    errors: Vec<CloudflareApiError>,
+    #[serde(rename = "result_info")]
+    result_info: Option<CloudflareResultInfo>,
+}
+
+#[derive(Deserialize)]
+struct CloudflareApiError {
+    code: Option<i64>,
+    message: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+struct CloudflareResultInfo {
+    #[serde(rename = "total_pages")]
+    total_pages: Option<u32>,
+    cursor: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CloudflareD1DatabaseApi {
+    uuid: String,
+    name: String,
+    #[serde(rename = "created_at")]
+    created_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CloudflareKvNamespaceApi {
+    id: String,
+    title: String,
+    supports_url_encoding: Option<bool>,
+}
+
+#[derive(Deserialize)]
+struct CloudflareKvKeyApi {
+    name: String,
+    expiration: Option<i64>,
+    metadata: Option<JsonValue>,
+}
+
+#[derive(Deserialize)]
+struct CloudflareD1QueryResultApi {
+    #[serde(default)]
+    results: Vec<JsonMap<String, JsonValue>>,
 }
 
 async fn run() -> anyhow::Result<()> {
@@ -353,6 +556,97 @@ async fn run() -> anyhow::Result<()> {
         }
         Action::ListD1Rows { sqlite_path, table } => {
             let result = list_d1_rows(&sqlite_path, &table).await?;
+            println!("{}", serde_json::to_string(&result)?);
+        }
+        Action::ListRemoteD1Databases {
+            account_id,
+            api_token,
+            page,
+            per_page,
+        } => {
+            let result = list_remote_d1_databases(
+                &account_id,
+                &api_token,
+                page.unwrap_or(1),
+                per_page.unwrap_or(100),
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&result)?);
+        }
+        Action::MaterializeRemoteD1Database {
+            account_id,
+            api_token,
+            database_id,
+            database_name,
+            force_refresh,
+            max_tables,
+            max_rows_per_table,
+        } => {
+            let result = materialize_remote_d1_database(
+                &account_id,
+                &api_token,
+                &database_id,
+                database_name.as_deref(),
+                force_refresh.unwrap_or(false),
+                max_tables.unwrap_or(25),
+                max_rows_per_table.unwrap_or(200),
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&result)?);
+        }
+        Action::ExecuteRemoteD1Sql {
+            account_id,
+            api_token,
+            database_id,
+            sql,
+        } => {
+            let rows = query_remote_d1(&account_id, &api_token, &database_id, &sql).await?;
+            println!(
+                "{}",
+                serde_json::to_string(&RemoteD1QueryResult { rows })?
+            );
+        }
+        Action::ListRemoteKvNamespaces {
+            account_id,
+            api_token,
+            page,
+            per_page,
+        } => {
+            let result = list_remote_kv_namespaces(
+                &account_id,
+                &api_token,
+                page.unwrap_or(1),
+                per_page.unwrap_or(100),
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&result)?);
+        }
+        Action::ListRemoteKvEntries {
+            account_id,
+            api_token,
+            namespace_id,
+            prefix,
+            cursor,
+            limit,
+        } => {
+            let result = list_remote_kv_entries(
+                &account_id,
+                &api_token,
+                &namespace_id,
+                prefix.as_deref(),
+                cursor.as_deref(),
+                limit.unwrap_or(200),
+            )
+            .await?;
+            println!("{}", serde_json::to_string(&result)?);
+        }
+        Action::ReadRemoteKvValue {
+            account_id,
+            api_token,
+            namespace_id,
+            key,
+        } => {
+            let result = read_remote_kv_value(&account_id, &api_token, &namespace_id, &key).await?;
             println!("{}", serde_json::to_string(&result)?);
         }
         Action::SetSecret { name, value } => {
@@ -780,6 +1074,10 @@ fn directory_has_file_recursive(dir: &Path) -> bool {
             }
 
             if file_type.is_file() {
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                if file_name.starts_with('.') {
+                    continue;
+                }
                 return true;
             }
 
@@ -842,6 +1140,19 @@ async fn connect_sqlite(sqlite_path: &str) -> anyhow::Result<SqliteConnection> {
     let options = SqliteConnectOptions::new()
         .filename(Path::new(sqlite_path))
         .create_if_missing(false);
+
+    SqliteConnection::connect_with(&options)
+        .await
+        .with_context(|| format!("Failed to open sqlite database: {sqlite_path}"))
+}
+
+async fn connect_sqlite_with_create(
+    sqlite_path: &str,
+    create_if_missing: bool,
+) -> anyhow::Result<SqliteConnection> {
+    let options = SqliteConnectOptions::new()
+        .filename(Path::new(sqlite_path))
+        .create_if_missing(create_if_missing);
 
     SqliteConnection::connect_with(&options)
         .await
@@ -1226,6 +1537,820 @@ async fn list_d1_rows(sqlite_path: &str, table: &str) -> anyhow::Result<D1RowsRe
     Ok(D1RowsResult { rows: json_rows })
 }
 
+fn cloudflare_client() -> anyhow::Result<Client> {
+    Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .context("Failed to initialize Cloudflare API HTTP client")
+}
+
+fn cloudflare_api_error_message<T>(envelope: &CloudflareEnvelope<T>) -> String {
+    if envelope.errors.is_empty() {
+        return String::from("Cloudflare API returned an unknown error.");
+    }
+
+    envelope
+        .errors
+        .iter()
+        .map(|error| {
+            let code = error
+                .code
+                .map(|value| format!(" [{value}]"))
+                .unwrap_or_default();
+            let message = error
+                .message
+                .clone()
+                .unwrap_or_else(|| String::from("Unknown error"));
+            format!("{message}{code}")
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+async fn cloudflare_get_json<T: DeserializeOwned>(
+    url: Url,
+    api_token: &str,
+) -> anyhow::Result<CloudflareEnvelope<T>> {
+    let client = cloudflare_client()?;
+    let response = client
+        .get(url.clone())
+        .bearer_auth(api_token)
+        .send()
+        .await
+        .with_context(|| format!("Cloudflare API request failed: GET {url}"))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .with_context(|| format!("Failed to read Cloudflare API response: GET {url}"))?;
+
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "Cloudflare API request failed ({status}) for GET {url}: {body}"
+        ));
+    }
+
+    let envelope: CloudflareEnvelope<T> = serde_json::from_str(&body)
+        .with_context(|| format!("Failed to parse Cloudflare API JSON response for GET {url}"))?;
+
+    if !envelope.success {
+        return Err(anyhow::anyhow!(
+            "Cloudflare API GET {url} reported failure: {}",
+            cloudflare_api_error_message(&envelope)
+        ));
+    }
+
+    Ok(envelope)
+}
+
+async fn cloudflare_post_json<T: DeserializeOwned>(
+    url: Url,
+    api_token: &str,
+    payload: &JsonValue,
+) -> anyhow::Result<CloudflareEnvelope<T>> {
+    let client = cloudflare_client()?;
+    let response = client
+        .post(url.clone())
+        .bearer_auth(api_token)
+        .json(payload)
+        .send()
+        .await
+        .with_context(|| format!("Cloudflare API request failed: POST {url}"))?;
+
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .with_context(|| format!("Failed to read Cloudflare API response: POST {url}"))?;
+
+    if !status.is_success() {
+        return Err(anyhow::anyhow!(
+            "Cloudflare API request failed ({status}) for POST {url}: {body}"
+        ));
+    }
+
+    let envelope: CloudflareEnvelope<T> = serde_json::from_str(&body)
+        .with_context(|| format!("Failed to parse Cloudflare API JSON response for POST {url}"))?;
+
+    if !envelope.success {
+        return Err(anyhow::anyhow!(
+            "Cloudflare API POST {url} reported failure: {}",
+            cloudflare_api_error_message(&envelope)
+        ));
+    }
+
+    Ok(envelope)
+}
+
+async fn cloudflare_get_bytes(url: Url, api_token: &str) -> anyhow::Result<Vec<u8>> {
+    let client = cloudflare_client()?;
+    let response = client
+        .get(url.clone())
+        .bearer_auth(api_token)
+        .send()
+        .await
+        .with_context(|| format!("Cloudflare API request failed: GET {url}"))?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response
+            .text()
+            .await
+            .with_context(|| format!("Failed to read Cloudflare API response: GET {url}"))?;
+        return Err(anyhow::anyhow!(
+            "Cloudflare API request failed ({status}) for GET {url}: {body}"
+        ));
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .with_context(|| format!("Failed to read Cloudflare API bytes response: GET {url}"))?;
+    Ok(bytes.to_vec())
+}
+
+fn cloudflare_api_base_url() -> anyhow::Result<Url> {
+    Url::parse("https://api.cloudflare.com/client/v4")
+        .context("Failed to parse Cloudflare API base URL")
+}
+
+fn build_cloudflare_url(path_segments: &[&str]) -> anyhow::Result<Url> {
+    let mut url = cloudflare_api_base_url()?;
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| anyhow::anyhow!("Failed to build Cloudflare API URL segments"))?;
+        for segment in path_segments {
+            segments.push(segment);
+        }
+    }
+    Ok(url)
+}
+
+async fn list_remote_d1_databases(
+    account_id: &str,
+    api_token: &str,
+    page: u32,
+    per_page: u32,
+) -> anyhow::Result<RemoteD1DatabasesResult> {
+    let mut url = build_cloudflare_url(&["accounts", account_id, "d1", "database"])?;
+    {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("page", &page.to_string());
+        query.append_pair("per_page", &per_page.clamp(1, 100).to_string());
+    }
+
+    let envelope: CloudflareEnvelope<Vec<CloudflareD1DatabaseApi>> =
+        cloudflare_get_json(url, api_token).await?;
+
+    let has_more = envelope
+        .result_info
+        .as_ref()
+        .and_then(|info| info.total_pages)
+        .map(|total_pages| page < total_pages)
+        .unwrap_or(false);
+
+    Ok(RemoteD1DatabasesResult {
+        databases: envelope
+            .result
+            .into_iter()
+            .map(|database| RemoteD1DatabaseInfo {
+                id: database.uuid,
+                name: database.name,
+                created_at: database.created_at,
+            })
+            .collect(),
+        page,
+        has_more,
+    })
+}
+
+async fn list_remote_kv_namespaces(
+    account_id: &str,
+    api_token: &str,
+    page: u32,
+    per_page: u32,
+) -> anyhow::Result<RemoteKvNamespacesResult> {
+    let mut url = build_cloudflare_url(&["accounts", account_id, "storage", "kv", "namespaces"])?;
+    {
+        let mut query = url.query_pairs_mut();
+        query.append_pair("page", &page.to_string());
+        query.append_pair("per_page", &per_page.clamp(1, 100).to_string());
+    }
+
+    let envelope: CloudflareEnvelope<Vec<CloudflareKvNamespaceApi>> =
+        cloudflare_get_json(url, api_token).await?;
+
+    let has_more = envelope
+        .result_info
+        .as_ref()
+        .and_then(|info| info.total_pages)
+        .map(|total_pages| page < total_pages)
+        .unwrap_or(false);
+
+    Ok(RemoteKvNamespacesResult {
+        namespaces: envelope
+            .result
+            .into_iter()
+            .map(|namespace| RemoteKvNamespaceInfo {
+                id: namespace.id,
+                title: namespace.title,
+                supports_url_encoding: namespace.supports_url_encoding,
+            })
+            .collect(),
+        page,
+        has_more,
+    })
+}
+
+fn build_cloudflare_kv_operator(
+    account_id: &str,
+    api_token: &str,
+    namespace_id: &str,
+) -> anyhow::Result<Operator> {
+    let mut builder = services::CloudflareKv::default();
+    builder = builder
+        .api_token(api_token)
+        .account_id(account_id)
+        .namespace_id(namespace_id)
+        .root("/");
+    Ok(Operator::new(builder)?.finish())
+}
+
+async fn list_remote_kv_entries(
+    account_id: &str,
+    api_token: &str,
+    namespace_id: &str,
+    prefix: Option<&str>,
+    cursor: Option<&str>,
+    limit: u32,
+) -> anyhow::Result<RemoteKvListResult> {
+    match list_remote_kv_entries_via_opendal(
+        account_id,
+        api_token,
+        namespace_id,
+        prefix,
+        cursor,
+        limit,
+    )
+    .await
+    {
+        Ok(result) => Ok(result),
+        Err(opendal_error) => {
+            eprintln!(
+                "OpenDAL Cloudflare KV list failed; falling back to Cloudflare API: {opendal_error}"
+            );
+            list_remote_kv_entries_via_api(
+                account_id,
+                api_token,
+                namespace_id,
+                prefix,
+                cursor,
+                limit,
+            )
+            .await
+            .with_context(|| {
+                format!(
+                    "Cloudflare KV list failed via OpenDAL ({opendal_error}) and API fallback"
+                )
+            })
+        }
+    }
+}
+
+async fn list_remote_kv_entries_via_opendal(
+    account_id: &str,
+    api_token: &str,
+    namespace_id: &str,
+    prefix: Option<&str>,
+    cursor: Option<&str>,
+    limit: u32,
+) -> anyhow::Result<RemoteKvListResult> {
+    let op = build_cloudflare_kv_operator(account_id, api_token, namespace_id)?;
+    let normalized_prefix = prefix.unwrap_or("").trim_start_matches('/');
+    let normalized_cursor = cursor
+        .map(|value| value.trim_start_matches('/').to_string())
+        .filter(|value| !value.is_empty());
+    let page_limit = limit.clamp(1, 1000) as usize;
+
+    let list_path = if normalized_prefix.ends_with('/') && !normalized_prefix.is_empty() {
+        format!("/{}", normalized_prefix)
+    } else {
+        String::from("/")
+    };
+
+    let lister = op.list_with(&list_path).recursive(true).await?;
+    let mut collected = Vec::with_capacity(page_limit);
+    let mut is_truncated = false;
+
+    for item in lister {
+        if item.metadata().is_dir() {
+            continue;
+        }
+
+        let key = item.path().trim_start_matches('/').to_string();
+        if key.is_empty() {
+            continue;
+        }
+
+        if !normalized_prefix.is_empty() && !key.starts_with(normalized_prefix) {
+            continue;
+        }
+
+        if let Some(cursor_value) = normalized_cursor.as_ref() {
+            if key <= *cursor_value {
+                continue;
+            }
+        }
+
+        if collected.len() >= page_limit {
+            is_truncated = true;
+            break;
+        }
+
+        collected.push(RemoteKvEntryInfo {
+            key,
+            expiration: None,
+            metadata: None,
+        });
+    }
+
+    let prefix_for_listing = if normalized_prefix.is_empty() {
+        None
+    } else {
+        Some(normalized_prefix)
+    };
+    let (prefixes, entries) = build_prefix_listing(collected, prefix_for_listing, |entry| &entry.key);
+    let next_cursor = if is_truncated {
+        entries.last().map(|entry| entry.key.clone())
+    } else {
+        None
+    };
+
+    Ok(RemoteKvListResult {
+        prefixes: prefixes
+            .into_iter()
+            .map(|prefix| PrefixInfo { prefix })
+            .collect(),
+        entries,
+        is_truncated,
+        cursor: next_cursor,
+    })
+}
+
+async fn list_remote_kv_entries_via_api(
+    account_id: &str,
+    api_token: &str,
+    namespace_id: &str,
+    prefix: Option<&str>,
+    cursor: Option<&str>,
+    limit: u32,
+) -> anyhow::Result<RemoteKvListResult> {
+    let normalized_prefix = prefix.unwrap_or("").trim_start_matches('/');
+    let normalized_cursor = cursor
+        .map(str::trim)
+        .map(ToOwned::to_owned)
+        .filter(|value| !value.is_empty());
+    let page_limit = limit.clamp(10, 1000);
+
+    let mut url = build_cloudflare_url(&[
+        "accounts",
+        account_id,
+        "storage",
+        "kv",
+        "namespaces",
+        namespace_id,
+        "keys",
+    ])?;
+
+    {
+        let mut query = url.query_pairs_mut();
+        if !normalized_prefix.is_empty() {
+            query.append_pair("prefix", normalized_prefix);
+        }
+        if let Some(cursor_value) = normalized_cursor.as_deref() {
+            query.append_pair("cursor", cursor_value);
+        }
+        query.append_pair("limit", &page_limit.to_string());
+    }
+
+    let envelope: CloudflareEnvelope<Vec<CloudflareKvKeyApi>> =
+        cloudflare_get_json(url, api_token).await?;
+
+    let entries = envelope
+        .result
+        .into_iter()
+        .map(|entry| RemoteKvEntryInfo {
+            key: entry.name,
+            expiration: entry.expiration,
+            metadata: entry.metadata.map(|metadata| metadata.to_string()),
+        })
+        .collect::<Vec<_>>();
+
+    let prefix_for_listing = if normalized_prefix.is_empty() {
+        None
+    } else {
+        Some(normalized_prefix)
+    };
+    let (prefixes, entries) = build_prefix_listing(entries, prefix_for_listing, |entry| &entry.key);
+
+    let next_cursor = envelope
+        .result_info
+        .and_then(|info| info.cursor)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let is_truncated = next_cursor.is_some();
+
+    Ok(RemoteKvListResult {
+        prefixes: prefixes
+            .into_iter()
+            .map(|prefix_value| PrefixInfo {
+                prefix: prefix_value,
+            })
+            .collect(),
+        entries,
+        cursor: next_cursor,
+        is_truncated,
+    })
+}
+
+async fn read_remote_kv_value(
+    account_id: &str,
+    api_token: &str,
+    namespace_id: &str,
+    key: &str,
+) -> anyhow::Result<RemoteKvValueResult> {
+    let normalized_key = key.trim_start_matches('/');
+    let bytes = match read_remote_kv_value_via_opendal(
+        account_id,
+        api_token,
+        namespace_id,
+        normalized_key,
+    )
+    .await
+    {
+        Ok(value) => value,
+        Err(opendal_error) => {
+            eprintln!(
+                "OpenDAL Cloudflare KV read failed; falling back to Cloudflare API: {opendal_error}"
+            );
+            read_remote_kv_value_via_api(account_id, api_token, namespace_id, normalized_key)
+                .await
+                .with_context(|| {
+                    format!(
+                        "Cloudflare KV read failed via OpenDAL ({opendal_error}) and API fallback"
+                    )
+                })?
+        }
+    };
+    let content = String::from_utf8_lossy(&bytes).to_string();
+
+    Ok(RemoteKvValueResult { content })
+}
+
+async fn read_remote_kv_value_via_opendal(
+    account_id: &str,
+    api_token: &str,
+    namespace_id: &str,
+    key: &str,
+) -> anyhow::Result<Vec<u8>> {
+    let op = build_cloudflare_kv_operator(account_id, api_token, namespace_id)?;
+    let buffer = op
+        .read(key)
+        .await
+        .with_context(|| format!("Failed to read Cloudflare KV key: {key}"))?;
+    Ok(buffer.to_vec())
+}
+
+async fn read_remote_kv_value_via_api(
+    account_id: &str,
+    api_token: &str,
+    namespace_id: &str,
+    key: &str,
+) -> anyhow::Result<Vec<u8>> {
+    let url = build_cloudflare_url(&[
+        "accounts",
+        account_id,
+        "storage",
+        "kv",
+        "namespaces",
+        namespace_id,
+        "values",
+        key,
+    ])?;
+    cloudflare_get_bytes(url, api_token).await
+}
+
+async fn query_remote_d1(
+    account_id: &str,
+    api_token: &str,
+    database_id: &str,
+    sql: &str,
+) -> anyhow::Result<Vec<JsonMap<String, JsonValue>>> {
+    let url = build_cloudflare_url(&[
+        "accounts",
+        account_id,
+        "d1",
+        "database",
+        database_id,
+        "query",
+    ])?;
+
+    let payload = serde_json::json!({ "sql": sql });
+    let envelope: CloudflareEnvelope<Vec<CloudflareD1QueryResultApi>> =
+        cloudflare_post_json(url, api_token, &payload).await?;
+
+    Ok(envelope
+        .result
+        .into_iter()
+        .next()
+        .map(|result| result.results)
+        .unwrap_or_default())
+}
+
+fn sanitize_snapshot_file_part(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+            output.push(ch);
+        } else {
+            output.push('_');
+        }
+    }
+    if output.is_empty() {
+        return String::from("remote-d1");
+    }
+    output
+}
+
+fn remote_d1_snapshot_path(database_id: &str) -> anyhow::Result<PathBuf> {
+    let root = std::env::temp_dir()
+        .join("cloudflare-bindings-explorer")
+        .join("remote-d1");
+    fs::create_dir_all(&root).context("Failed to create remote D1 snapshot directory")?;
+    Ok(root.join(format!(
+        "{}.sqlite",
+        sanitize_snapshot_file_part(database_id)
+    )))
+}
+
+fn remote_d1_temp_snapshot_path(database_id: &str) -> anyhow::Result<PathBuf> {
+    let root = std::env::temp_dir()
+        .join("cloudflare-bindings-explorer")
+        .join("remote-d1");
+    fs::create_dir_all(&root).context("Failed to create remote D1 snapshot directory")?;
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    Ok(root.join(format!(
+        "{}.{suffix}.tmp.sqlite",
+        sanitize_snapshot_file_part(database_id)
+    )))
+}
+
+fn snapshot_is_fresh(path: &Path, max_age: Duration) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+
+    let Ok(elapsed) = SystemTime::now().duration_since(modified) else {
+        return false;
+    };
+
+    elapsed <= max_age
+}
+
+fn bind_json_value_to_query<'q>(
+    query: sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>>,
+    value: &JsonValue,
+) -> sqlx::query::Query<'q, sqlx::Sqlite, sqlx::sqlite::SqliteArguments<'q>> {
+    match value {
+        JsonValue::Null => query.bind(Option::<String>::None),
+        JsonValue::Bool(value) => query.bind(if *value { 1_i64 } else { 0_i64 }),
+        JsonValue::Number(value) => {
+            if let Some(number) = value.as_i64() {
+                return query.bind(number);
+            }
+            if let Some(number) = value.as_u64() {
+                if number <= i64::MAX as u64 {
+                    return query.bind(number as i64);
+                }
+                return query.bind(number.to_string());
+            }
+            if let Some(number) = value.as_f64() {
+                return query.bind(number);
+            }
+            query.bind(value.to_string())
+        }
+        JsonValue::String(value) => query.bind(value.clone()),
+        JsonValue::Array(_) | JsonValue::Object(_) => query.bind(value.to_string()),
+    }
+}
+
+async fn insert_remote_rows_into_snapshot(
+    conn: &mut SqliteConnection,
+    table: &str,
+    rows: &[JsonMap<String, JsonValue>],
+) -> anyhow::Result<()> {
+    let quoted_table = quote_identifier(table);
+    for row in rows {
+        if row.is_empty() {
+            continue;
+        }
+
+        let columns = row.keys().cloned().collect::<Vec<_>>();
+        if columns.is_empty() {
+            continue;
+        }
+
+        let quoted_columns = columns
+            .iter()
+            .map(|column| quote_identifier(column))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let placeholders = std::iter::repeat("?")
+            .take(columns.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let insert_sql =
+            format!("INSERT INTO {quoted_table} ({quoted_columns}) VALUES ({placeholders})");
+
+        let mut query = sqlx::query(&insert_sql);
+        for column in &columns {
+            let value = row.get(column).unwrap_or(&JsonValue::Null);
+            query = bind_json_value_to_query(query, value);
+        }
+
+        // Best effort: if a row fails due to constraints/schema mismatch, continue.
+        let _ = query.execute(&mut *conn).await;
+    }
+
+    Ok(())
+}
+
+async fn materialize_remote_d1_database(
+    account_id: &str,
+    api_token: &str,
+    database_id: &str,
+    database_name: Option<&str>,
+    force_refresh: bool,
+    max_tables: usize,
+    max_rows_per_table: usize,
+) -> anyhow::Result<RemoteD1SnapshotResult> {
+    let max_tables = max_tables.clamp(1, 500);
+    let max_rows_per_table = max_rows_per_table.clamp(1, 2000);
+    let resolved_database_name = database_name.unwrap_or(database_id).to_string();
+    let snapshot_path = remote_d1_snapshot_path(database_id)?;
+
+    if !force_refresh && snapshot_is_fresh(&snapshot_path, Duration::from_secs(120)) {
+        return Ok(RemoteD1SnapshotResult {
+            sqlite_path: snapshot_path.to_string_lossy().to_string(),
+            from_cache: true,
+            table_count: 0,
+            row_limit: max_rows_per_table,
+            database_id: database_id.to_string(),
+            database_name: resolved_database_name,
+        });
+    }
+
+    let temp_snapshot_path = remote_d1_temp_snapshot_path(database_id)?;
+    if temp_snapshot_path.exists() {
+        let _ = fs::remove_file(&temp_snapshot_path);
+    }
+
+    let temp_snapshot_path_str = temp_snapshot_path.to_string_lossy().to_string();
+
+    let materialize_result = async {
+        let mut conn = connect_sqlite_with_create(&temp_snapshot_path_str, true).await?;
+
+        // Keep the snapshot compatible with sql.js direct file reads.
+        let _ = sqlx::query("PRAGMA journal_mode = DELETE")
+            .execute(&mut conn)
+            .await;
+        let _ = sqlx::query("PRAGMA synchronous = FULL")
+            .execute(&mut conn)
+            .await;
+        sqlx::query(
+            "CREATE TABLE IF NOT EXISTS __cbe_remote_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)",
+        )
+        .execute(&mut conn)
+        .await
+        .context("Failed to create remote D1 metadata table")?;
+
+        let now = chrono_like_timestamp();
+        sqlx::query("INSERT OR REPLACE INTO __cbe_remote_metadata (key, value) VALUES ('database_id', ?), ('database_name', ?), ('fetched_at', ?)")
+            .bind(database_id)
+            .bind(&resolved_database_name)
+            .bind(now)
+            .execute(&mut conn)
+            .await
+            .context("Failed to write remote D1 metadata")?;
+
+        let table_query = format!(
+            "SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name LIMIT {}",
+            max_tables
+        );
+        let table_rows = query_remote_d1(account_id, api_token, database_id, &table_query).await?;
+
+        let mut materialized_tables = 0usize;
+
+        for table_row in table_rows {
+            let Some(table_name) = table_row
+                .get("name")
+                .and_then(JsonValue::as_str)
+                .map(ToOwned::to_owned)
+            else {
+                continue;
+            };
+
+            let create_statement = table_row
+                .get("sql")
+                .and_then(JsonValue::as_str)
+                .map(ToOwned::to_owned);
+
+            if let Some(create_statement) = create_statement {
+                if create_statement.trim().is_empty() {
+                    continue;
+                }
+                // Best effort: if schema creation fails for a table, skip it.
+                if sqlx::query(&create_statement)
+                    .execute(&mut conn)
+                    .await
+                    .is_err()
+                {
+                    continue;
+                }
+            } else {
+                continue;
+            }
+
+            let select_query = format!(
+                "SELECT * FROM {} LIMIT {}",
+                quote_identifier(&table_name),
+                max_rows_per_table
+            );
+            let rows = query_remote_d1(account_id, api_token, database_id, &select_query)
+                .await
+                .unwrap_or_default();
+            insert_remote_rows_into_snapshot(&mut conn, &table_name, &rows).await?;
+            materialized_tables += 1;
+        }
+
+        conn.close()
+            .await
+            .context("Failed to finalize remote D1 snapshot connection")?;
+
+        Ok::<usize, anyhow::Error>(materialized_tables)
+    }
+    .await;
+
+    let materialized_tables = match materialize_result {
+        Ok(count) => count,
+        Err(error) => {
+            let _ = fs::remove_file(&temp_snapshot_path);
+            return Err(error);
+        }
+    };
+
+    if let Err(first_error) = fs::rename(&temp_snapshot_path, &snapshot_path) {
+        if snapshot_path.exists() {
+            let _ = fs::remove_file(&snapshot_path);
+        }
+
+        if let Err(second_error) = fs::rename(&temp_snapshot_path, &snapshot_path) {
+            let _ = fs::remove_file(&temp_snapshot_path);
+            return Err(anyhow::anyhow!(
+                "Failed to replace remote D1 snapshot file at {}: initial rename error: {first_error}; retry error: {second_error}",
+                snapshot_path.to_string_lossy()
+            ));
+        }
+    }
+
+    Ok(RemoteD1SnapshotResult {
+        sqlite_path: snapshot_path.to_string_lossy().to_string(),
+        from_cache: false,
+        table_count: materialized_tables,
+        row_limit: max_rows_per_table,
+        database_id: database_id.to_string(),
+        database_name: resolved_database_name,
+    })
+}
+
+fn chrono_like_timestamp() -> String {
+    let now = SystemTime::now();
+    let unix = now
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    unix.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{list_storage_types, list_wrangler_roots};
@@ -1303,42 +2428,40 @@ mod tests {
         let found = list_wrangler_roots(&[root_path.to_string_lossy().to_string()]);
         let found_set = found.into_iter().collect::<BTreeSet<_>>();
 
-        assert!(found_set.contains(
-            &root_path
-                .join(".wrangler-state")
-                .to_string_lossy()
-                .to_string()
-        ));
-        assert!(found_set.contains(
-            &root_path
-                .join("wrangler")
-                .to_string_lossy()
-                .to_string()
-        ));
-        assert!(!found_set.contains(
-            &root_path
-                .join(".wrangler")
-                .to_string_lossy()
-                .to_string()
-        ));
-        assert!(!found_set.contains(
-            &root_path
-                .join("wrangler-cache")
-                .to_string_lossy()
-                .to_string()
-        ));
-        assert!(!found_set.contains(
-            &root_path
-                .join("wrangler-dirs-only")
-                .to_string_lossy()
-                .to_string()
-        ));
-        assert!(!found_set.contains(
-            &root_path
-                .join("something-else")
-                .to_string_lossy()
-                .to_string()
-        ));
+        assert!(
+            found_set.contains(
+                &root_path
+                    .join(".wrangler-state")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
+        assert!(found_set.contains(&root_path.join("wrangler").to_string_lossy().to_string()));
+        assert!(!found_set.contains(&root_path.join(".wrangler").to_string_lossy().to_string()));
+        assert!(
+            !found_set.contains(
+                &root_path
+                    .join("wrangler-cache")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
+        assert!(
+            !found_set.contains(
+                &root_path
+                    .join("wrangler-dirs-only")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
+        assert!(
+            !found_set.contains(
+                &root_path
+                    .join("something-else")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
     }
 
     #[test]
@@ -1360,20 +2483,24 @@ mod tests {
         let found = list_wrangler_roots(&[root_path.to_string_lossy().to_string()]);
         let found_set = found.into_iter().collect::<BTreeSet<_>>();
 
-        assert!(found_set.contains(
-            &root_path
-                .join(".wrangler-state")
-                .to_string_lossy()
-                .to_string()
-        ));
-        assert!(!found_set.contains(
-            &root_path
-                .join("node_modules")
-                .join("dependency")
-                .join(".wrangler-local")
-                .to_string_lossy()
-                .to_string()
-        ));
+        assert!(
+            found_set.contains(
+                &root_path
+                    .join(".wrangler-state")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
+        assert!(
+            !found_set.contains(
+                &root_path
+                    .join("node_modules")
+                    .join("dependency")
+                    .join(".wrangler-local")
+                    .to_string_lossy()
+                    .to_string()
+            )
+        );
     }
 
     #[test]
@@ -1382,8 +2509,14 @@ mod tests {
         let root_path = root.path();
         let wrangler_root = root_path.join(".wrangler-state");
 
-        create_dir(root_path, ".wrangler-state/state/v3/kv/demo-namespace/blobs");
-        create_dir(root_path, ".wrangler-state/state/v3/d1/miniflare-D1DatabaseObject");
+        create_dir(
+            root_path,
+            ".wrangler-state/state/v3/kv/demo-namespace/blobs",
+        );
+        create_dir(
+            root_path,
+            ".wrangler-state/state/v3/d1/miniflare-D1DatabaseObject",
+        );
         create_dir(root_path, ".wrangler-state/state/v3/r2/demo-bucket/blobs");
 
         let empty_result = list_storage_types(wrangler_root.to_string_lossy().as_ref());

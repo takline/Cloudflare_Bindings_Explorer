@@ -6,12 +6,12 @@ import * as vscode from "vscode";
 import { LocalWranglerExplorer } from "../../tree/localWranglerExplorer";
 import {
   LocalWranglerNode,
-  WranglerD1TableNode,
   WranglerKvNamespaceNode,
   WranglerKvPrefixNode,
   WranglerR2BucketNode,
   WranglerRootNode,
   WranglerSqliteRootNode,
+  WranglerStorageTypeNode,
 } from "../../tree/localWranglerNodes";
 
 type LocalWranglerClientModule = typeof import("../../local-wrangler/client");
@@ -57,12 +57,12 @@ describe("Local Wrangler Explorer", () => {
   const tempDirs: string[] = [];
   const originalClientFns: Pick<
     LocalWranglerClientModule,
-    "listStorageTypes" | "listKvEntries" | "listR2Objects" | "listD1Rows"
+    "listStorageTypes" | "listKvEntries" | "listR2Objects" | "listD1Databases"
   > = {
     listStorageTypes: localWranglerClient.listStorageTypes,
     listKvEntries: localWranglerClient.listKvEntries,
     listR2Objects: localWranglerClient.listR2Objects,
-    listD1Rows: localWranglerClient.listD1Rows,
+    listD1Databases: localWranglerClient.listD1Databases,
   };
 
   beforeEach(() => {
@@ -73,7 +73,7 @@ describe("Local Wrangler Explorer", () => {
     localWranglerClient.listStorageTypes = originalClientFns.listStorageTypes;
     localWranglerClient.listKvEntries = originalClientFns.listKvEntries;
     localWranglerClient.listR2Objects = originalClientFns.listR2Objects;
-    localWranglerClient.listD1Rows = originalClientFns.listD1Rows;
+    localWranglerClient.listD1Databases = originalClientFns.listD1Databases;
 
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop();
@@ -179,32 +179,27 @@ describe("Local Wrangler Explorer", () => {
     ]);
   });
 
-  it("routes D1 table nodes through listD1Rows", async () => {
+  it("shows D1 databases as click-to-open visual editor entries", async () => {
     const explorer = new LocalWranglerExplorer(store);
-    const calls: Array<{ sqlitePath: string; table: string }> = [];
-
-    localWranglerClient.listD1Rows = async (payload) => {
-      calls.push(payload);
-      return {
-        rows: [{ rowid: 1, id: 1, name: "Ada" }],
-      };
-    };
+    localWranglerClient.listD1Databases = async () => [
+      {
+        displayName: "mock-db",
+        sqlitePath: "/tmp/mock-db.sqlite",
+      },
+    ];
 
     const children = await explorer.getChildren(
-      new WranglerD1TableNode("/tmp/.wrangler", "/tmp/demo.sqlite", {
-        name: "users",
-        rowCount: 1,
-      })
+      new WranglerStorageTypeNode("/tmp/.wrangler", "d1")
     );
 
-    assert.strictEqual(children.length, 1);
-    assert.strictEqual(children[0]?.type, "d1Row");
-    assert.deepStrictEqual(calls, [
-      {
-        sqlitePath: "/tmp/demo.sqlite",
-        table: "users",
-      },
-    ]);
+    assert.strictEqual(children.length, 2);
+    assert.strictEqual(children[0]?.type, "message");
+    assert.strictEqual(children[1]?.type, "d1Database");
+
+    const dbNode = children[1]!;
+    assert.strictEqual(dbNode.collapsibleState, vscode.TreeItemCollapsibleState.None);
+    assert.strictEqual(dbNode.description, "Click to open visual editor");
+    assert.strictEqual(dbNode.command?.command, "wranglerLocal.openSqliteDatabase");
   });
 
   it("returns runtime-not-found message nodes when CLI runtime is unavailable", async () => {

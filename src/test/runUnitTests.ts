@@ -6,6 +6,9 @@ async function main() {
     if (!process.env.RUN_R2_LIVE_TESTS) {
       process.env.RUN_R2_LIVE_TESTS = "0";
     }
+    if (!process.env.RUN_REMOTE_BINDINGS_LIVE_TESTS) {
+      process.env.RUN_REMOTE_BINDINGS_LIVE_TESTS = "0";
+    }
 
     installVscodeModuleMock();
     await run();

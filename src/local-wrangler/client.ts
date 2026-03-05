@@ -1,8 +1,6 @@
 import { runBindingsCli } from "../bindings/client";
 import {
   D1DatabaseInfo,
-  D1RowsResult,
-  D1TableInfo,
   KvListResult,
   KvNamespaceInfo,
   R2BucketInfo,
@@ -172,46 +170,6 @@ export async function listD1Databases(
     }
 
     return result.databases as D1DatabaseInfo[];
-  } catch (error) {
-    mapCliError(error);
-  }
-}
-
-export async function listD1Tables(payload: {
-  sqlitePath: string;
-}): Promise<D1TableInfo[]> {
-  try {
-    const result = await runBindingsCli({
-      action: "listD1Tables",
-      sqlitePath: payload.sqlitePath,
-    });
-
-    if (!Array.isArray(result?.tables)) {
-      return [];
-    }
-
-    return result.tables as D1TableInfo[];
-  } catch (error) {
-    mapCliError(error);
-  }
-}
-
-export async function listD1Rows(payload: {
-  sqlitePath: string;
-  table: string;
-}): Promise<D1RowsResult> {
-  try {
-    const result = await runBindingsCli({
-      action: "listD1Rows",
-      sqlitePath: payload.sqlitePath,
-      table: payload.table,
-    });
-
-    return {
-      rows: Array.isArray(result?.rows)
-        ? (result.rows as Array<Record<string, unknown>>)
-        : [],
-    };
   } catch (error) {
     mapCliError(error);
   }

@@ -11,6 +11,10 @@ export function run(): Promise<void> {
 
   const testsRoot = path.resolve(__dirname, "..");
   const runLiveR2Tests = process.env.RUN_R2_LIVE_TESTS === "1";
+  const runLiveRemoteBindingsTests =
+    process.env.RUN_REMOTE_BINDINGS_LIVE_TESTS === "1";
+  const runLiveIntegrationTests =
+    runLiveR2Tests || runLiveRemoteBindingsTests;
 
   return new Promise((resolve, reject) => {
     // Use require instead of import for glob to avoid TypeScript issues
@@ -31,12 +35,12 @@ export function run(): Promise<void> {
       f.endsWith("integration.test.js")
     );
     const selectedFiles = files.filter(
-      (f: string) => runLiveR2Tests || !f.endsWith("integration.test.js")
+      (f: string) => runLiveIntegrationTests || !f.endsWith("integration.test.js")
     );
 
-    if (!runLiveR2Tests && integrationTests.length > 0) {
+    if (!runLiveIntegrationTests && integrationTests.length > 0) {
       console.log(
-        "Skipping live R2 integration tests. Set RUN_R2_LIVE_TESTS=1 to enable."
+        "Skipping live integration tests. Set RUN_R2_LIVE_TESTS=1 and/or RUN_REMOTE_BINDINGS_LIVE_TESTS=1 to enable."
       );
     }
 

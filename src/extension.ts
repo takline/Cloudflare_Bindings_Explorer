@@ -1,6 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
+import * as fs_node from "fs";
+import * as path_node from "path";
 import { S3Explorer } from "./tree/explorer";
 import { LocalWranglerExplorer } from "./tree/localWranglerExplorer";
 import { S3FileSystemProvider } from "./fs/provider";
@@ -10,7 +13,7 @@ import {
   addManualSqliteDatabase,
   removeManualSqliteDatabase,
 } from "./sqlite/manualDatabases";
-import { listBuckets, searchObjects } from "./s3/listing";
+import { listBuckets, searchObjects, listObjects } from "./s3/listing";
 import {
   createFolder,
   uploadFile,
@@ -32,7 +35,14 @@ import {
   isBucketNode,
 } from "./tree/nodes";
 import {
-  isWranglerD1RowNode,
+  RemoteD1DatabaseNode,
+  RemoteKvEntryNode,
+  RemoteKvLoadMoreNode,
+  isRemoteD1DatabaseNode,
+  isRemoteKvEntryNode,
+  isRemoteKvLoadMoreNode,
+} from "./tree/remoteNodes";
+import {
   isWranglerD1DatabaseNode,
   isWranglerKvEntryNode,
   isWranglerKvNamespaceNode,
@@ -40,6 +50,11 @@ import {
   isWranglerSqliteDatabaseNode,
   LocalWranglerNode,
 } from "./tree/localWranglerNodes";
+import {
+  clearRemoteBindingsCache,
+  materializeRemoteD1Database,
+  readRemoteKvValue,
+} from "./remote-bindings/client";
 import {
   withUploadProgress,
   withDownloadProgress,
@@ -76,6 +91,7 @@ import {
   logInfo,
   showOutputChannel,
 } from "./util/output";
+import { initSecretStorage } from "./util/secrets";
 
 import { MailViewer } from "./email/MailViewer";
 
@@ -86,9 +102,10 @@ let localWranglerExplorer: LocalWranglerExplorer;
 export async function activate(context: vscode.ExtensionContext) {
   initOutputChannel(context);
   logInfo("Cloudflare Bindings Explorer is activating.");
+  initSecretStorage(context.secrets);
 
   // Initialize providers
-  s3Explorer = new S3Explorer();
+  s3Explorer = new S3Explorer(context.workspaceState);
   s3FileSystemProvider = new S3FileSystemProvider();
   initBindingsCliClient(context.extensionPath);
   localWranglerExplorer = new LocalWranglerExplorer(context.workspaceState);
@@ -158,6 +175,7 @@ function registerCommands(context: vscode.ExtensionContext) {
     }
 
     clearClientCache();
+    clearRemoteBindingsCache();
     s3Cache.invalidateAll();
     s3Explorer.refresh();
   };
@@ -194,6 +212,17 @@ function registerCommands(context: vscode.ExtensionContext) {
       async (node: LoadMoreNode) => {
         if (isLoadMoreNode(node)) {
           await s3Explorer.loadMore(node);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "remoteBindings.loadMoreKv",
+      async (node: RemoteKvLoadMoreNode) => {
+        if (isRemoteKvLoadMoreNode(node)) {
+          await s3Explorer.loadMoreRemoteKv(node);
         }
       }
     )
@@ -306,9 +335,43 @@ function registerCommands(context: vscode.ExtensionContext) {
       console.log("Force refreshing all S3 data...");
       s3Cache.invalidateAll();
       clearClientCache();
+      clearRemoteBindingsCache();
       s3Explorer.refresh();
       showInformationMessage("Cloudflare Bindings Explorer refreshed completely");
     })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "remoteBindings.openD1Database",
+      async (node: RemoteD1DatabaseNode) => {
+        if (isRemoteD1DatabaseNode(node)) {
+          await handleOpenRemoteD1Database(node);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "remoteBindings.removeD1Connection",
+      async (node: RemoteD1DatabaseNode) => {
+        if (isRemoteD1DatabaseNode(node)) {
+          await handleRemoveRemoteD1Connection(node);
+        }
+      }
+    )
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "remoteBindings.openKvEntry",
+      async (node: RemoteKvEntryNode) => {
+        if (isRemoteKvEntryNode(node)) {
+          await handleOpenRemoteKvEntry(node);
+        }
+      }
+    )
   );
 
   context.subscriptions.push(
@@ -501,16 +564,45 @@ async function handleUploadFolder(node: any) {
     }
 
     const folder = folders[0];
-    showInformationMessage(
-      "Folder upload functionality will be implemented with recursive file walking"
-    );
-
-    // TODO: Implement recursive folder upload
-    // This would involve:
-    // 1. Walking the directory tree
-    // 2. Reading all files
-    // 3. Uploading with proper key structure
-    // 4. Progress tracking for the entire operation
+    const fsPath = folder.fsPath;
+    
+    // Walk directory recursively
+    const filesToUpload: string[] = [];
+    const walk = async (dir: string) => {
+      const entries = await fs_node.promises.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path_node.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(fullPath);
+        } else {
+          filesToUpload.push(fullPath);
+        }
+      }
+    }
+    
+    await walk(fsPath);
+    if (filesToUpload.length === 0) {
+      showInformationMessage("Folder is empty.");
+      return;
+    }
+    
+    await withUploadProgress(async (progress) => {
+      let completed = 0;
+      for (const file of filesToUpload) {
+        const relativePath = path_node.relative(fsPath, file);
+        // Normalize path for S3 key
+        const keyPath = relativePath.split(path_node.sep).join('/');
+        const targetKey = prefix ? `${prefix}${keyPath}` : keyPath;
+        
+        progress.report({ message: `Uploading ${relativePath}...`, increment: (completed / filesToUpload.length) * 100 });
+        await uploadFile(bucket, targetKey, file);
+        completed++;
+      }
+    }, `${filesToUpload.length} files`);
+    
+    s3Cache.invalidate(bucket);
+    s3Explorer.refresh();
+    showInformationMessage(`Successfully uploaded ${filesToUpload.length} files from folder.`);
   } catch (error) {
     showErrorMessage(
       `Failed to upload folder: ${
@@ -587,10 +679,27 @@ async function handleDelete(node: any) {
         return;
       }
 
-      showInformationMessage(
-        "Folder deletion functionality will be implemented with recursive deletion"
-      );
-      // TODO: Implement recursive folder deletion
+      await withDeleteProgress(async (progress) => {
+        progress.report({ message: "Finding objects to delete..." });
+        // list all objects under prefix
+        let continuationToken: string | undefined;
+        let totalDeleted = 0;
+        do {
+          const contents: any = await listObjects(node.bucket, node.prefix, continuationToken);
+          const keysToDelete = contents.objects.map((obj: any) => obj.key);
+          if (keysToDelete.length > 0) {
+             progress.report({ message: `Deleting ${keysToDelete.length} objects...` });
+             await deleteObjects(node.bucket, keysToDelete);
+             totalDeleted += keysToDelete.length;
+          }
+          continuationToken = contents.continuationToken;
+        } while (continuationToken);
+        
+        showInformationMessage(`Successfully deleted ${totalDeleted} objects from prefix.`);
+      }, 1);
+      
+      s3Cache.invalidate(node.bucket);
+      s3Explorer.refresh();
     }
   } catch (error) {
     showErrorMessage(
@@ -600,18 +709,68 @@ async function handleDelete(node: any) {
 }
 
 async function handleCopy(node: any) {
-  showInformationMessage("Copy functionality will be implemented");
-  // TODO: Implement copy with target selection
+  if (!isObjectNode(node)) {
+    showErrorMessage("Can only copy objects.");
+    return;
+  }
+  const newKey = await vscode.window.showInputBox({
+    prompt: "Enter new key for copied object",
+    value: node.key,
+  });
+  if (!newKey || newKey === node.key) { return; }
+  
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Copying object...",
+        cancellable: false
+      },
+      async () => {
+        await copyObject(node.bucket, node.key, node.bucket, newKey);
+      }
+    );
+    s3Cache.invalidate(node.bucket);
+    s3Explorer.refresh();
+    showInformationMessage("Object copied successfully");
+  } catch (error) {
+    showErrorMessage(`Copy failed: ${error instanceof Error ? error.message : error}`);
+  }
 }
 
 async function handleMove(node: any) {
-  showInformationMessage("Move functionality will be implemented");
-  // TODO: Implement move with target selection
+  if (!isObjectNode(node)) {
+    showErrorMessage("Can only move objects.");
+    return;
+  }
+  const newKey = await vscode.window.showInputBox({
+    prompt: "Enter new key for moved object",
+    value: node.key,
+  });
+  if (!newKey || newKey === node.key) { return; }
+  
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Moving object...",
+        cancellable: false
+      },
+      async () => {
+        await moveObject(node.bucket, node.key, node.bucket, newKey);
+      }
+    );
+    s3Cache.invalidate(node.bucket);
+    s3Explorer.refresh();
+    showInformationMessage("Object moved successfully");
+  } catch (error) {
+    showErrorMessage(`Move failed: ${error instanceof Error ? error.message : error}`);
+  }
 }
 
 async function handleRename(node: any) {
-  showInformationMessage("Rename functionality will be implemented");
-  // TODO: Implement rename (copy to new key + delete old key)
+  // Essentially move inside the same prefix folder or rename key
+  await handleMove(node);
 }
 
 async function handleGeneratePresignedUrl(node: any) {
@@ -861,6 +1020,89 @@ async function handleOpenFile(node: any) {
   }
 }
 
+async function handleOpenRemoteD1Database(node: RemoteD1DatabaseNode) {
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Opening remote D1 database "${node.databaseName}"`,
+        cancellable: false,
+      },
+      async (progress) => {
+        progress.report({ message: "Preparing local snapshot..." });
+
+        const snapshot = await materializeRemoteD1Database({
+          databaseId: node.databaseId,
+          databaseName: node.databaseName,
+        });
+
+        progress.report({
+          message: snapshot.fromCache
+            ? "Opening cached snapshot..."
+            : "Opening fresh snapshot...",
+          increment: 80,
+        });
+
+        await handleOpenSqliteDatabase(snapshot.sqlitePath, {
+          remoteD1: {
+            databaseId: snapshot.databaseId || node.databaseId,
+            databaseName: snapshot.databaseName || node.databaseName,
+          },
+        });
+      }
+    );
+  } catch (error) {
+    showErrorMessage(
+      `Failed to open remote D1 database: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+}
+
+async function handleRemoveRemoteD1Connection(node: RemoteD1DatabaseNode) {
+  try {
+    await s3Explorer.hideRemoteD1Database(node.databaseId);
+    showInformationMessage(`Removed connection to remote D1 database "${node.databaseName}".`);
+  } catch (error) {
+    showErrorMessage(
+      `Failed to remove remote D1 connection: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+}
+
+async function handleOpenRemoteKvEntry(node: RemoteKvEntryNode) {
+  try {
+    const content = await readRemoteKvValue({
+      namespaceId: node.namespaceId,
+      key: node.entry.key,
+    });
+
+    const panel = vscode.window.createWebviewPanel(
+      "cloudflareBindingsExplorer.remoteKvValue",
+      `KV: ${getFileName(node.entry.key) || node.entry.key}`,
+      vscode.ViewColumn.Active,
+      {
+        enableScripts: false,
+        retainContextWhenHidden: true,
+      }
+    );
+    panel.webview.html = createRemoteKvValueHtml({
+      namespaceTitle: node.namespaceTitle,
+      key: node.entry.key,
+      content,
+    });
+  } catch (error) {
+    showErrorMessage(
+      `Failed to open remote KV value: ${
+        error instanceof Error ? error.message : error
+      }`
+    );
+  }
+}
+
 async function handleOpenLocalWranglerItem(node: LocalWranglerNode) {
   try {
     if (!node) {
@@ -882,16 +1124,6 @@ async function handleOpenLocalWranglerItem(node: LocalWranglerNode) {
       return;
     }
 
-    if (isWranglerD1RowNode(node)) {
-      const content = JSON.stringify(node.row, null, 2);
-      const doc = await vscode.workspace.openTextDocument({
-        content: `// ${node.tableName} row\n${content}`,
-        language: "json",
-      });
-      await vscode.window.showTextDocument(doc, { preview: true });
-      return;
-    }
-
     showErrorMessage("Unsupported Wrangler item type.");
   } catch (error) {
     showErrorMessage(
@@ -902,7 +1134,17 @@ async function handleOpenLocalWranglerItem(node: LocalWranglerNode) {
   }
 }
 
-async function handleOpenSqliteDatabase(nodeOrPath?: LocalWranglerNode | string) {
+type SqliteOpenOptions = {
+  remoteD1?: {
+    databaseId: string;
+    databaseName: string;
+  };
+};
+
+async function handleOpenSqliteDatabase(
+  nodeOrPath?: LocalWranglerNode | string,
+  options?: SqliteOpenOptions
+) {
   try {
     let dbPath: string | undefined;
 
@@ -937,7 +1179,16 @@ async function handleOpenSqliteDatabase(nodeOrPath?: LocalWranglerNode | string)
       return;
     }
 
-    const uri = vscode.Uri.file(dbPath);
+    let uri = vscode.Uri.file(dbPath);
+    if (options?.remoteD1) {
+      const query = new URLSearchParams({
+        cbeRemoteD1: "1",
+        cbeRemoteD1Id: options.remoteD1.databaseId,
+        cbeRemoteD1Name: options.remoteD1.databaseName,
+      }).toString();
+      uri = uri.with({ query });
+    }
+
     await vscode.commands.executeCommand(
       "vscode.openWith",
       uri,
@@ -1069,6 +1320,76 @@ async function openLocalBlob(blobPath: string) {
   }
   const uri = vscode.Uri.file(blobPath);
   await vscode.commands.executeCommand("vscode.open", uri);
+}
+
+function createRemoteKvValueHtml(payload: {
+  namespaceTitle: string;
+  key: string;
+  content: string;
+}): string {
+  const nonce = randomBytes(16).toString("hex");
+  const namespace = escapeHtml(payload.namespaceTitle);
+  const key = escapeHtml(payload.key);
+  const content = escapeHtml(payload.content);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'nonce-${nonce}';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Remote KV Value</title>
+    <style nonce="${nonce}">
+      body {
+        margin: 0;
+        padding: 16px;
+        font-family: var(--vscode-font-family);
+        color: var(--vscode-editor-foreground);
+        background: var(--vscode-editor-background);
+      }
+      .meta {
+        margin-bottom: 12px;
+        font-size: 12px;
+        color: var(--vscode-descriptionForeground);
+      }
+      .meta div {
+        margin-bottom: 4px;
+      }
+      pre {
+        margin: 0;
+        padding: 12px;
+        border: 1px solid var(--vscode-panel-border);
+        border-radius: 6px;
+        overflow: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+        background: var(--vscode-textCodeBlock-background);
+        font-family: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, monospace);
+        font-size: 12px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="meta">
+      <div><strong>Namespace:</strong> ${namespace}</div>
+      <div><strong>Key:</strong> ${key}</div>
+    </div>
+    <pre>${content}</pre>
+  </body>
+</html>`;
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 async function handlePreviewMedia(params: any) {

@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { formatFileSize, formatLastModified, getObjectDisplayName, getPrefixDisplayName } from "../s3/listing";
 import { getFileName, isAudioFile, isImageFile, isTextFile, isVideoFile } from "../util/paths";
-import type { D1TableInfo, KvEntryInfo, KvNamespaceInfo, R2ObjectInfo } from "../local-wrangler/types";
+import type { KvEntryInfo, KvNamespaceInfo, R2ObjectInfo } from "../local-wrangler/types";
 
 export type LocalWranglerNodeType =
   | "wranglerRoot"
@@ -15,8 +15,6 @@ export type LocalWranglerNodeType =
   | "r2Prefix"
   | "r2Object"
   | "d1Database"
-  | "d1Table"
-  | "d1Row"
   | "message";
 
 export abstract class LocalWranglerNode extends vscode.TreeItem {
@@ -251,65 +249,17 @@ export class WranglerD1DatabaseNode extends LocalWranglerNode {
   readonly displayName: string;
 
   constructor(wranglerPath: string, sqlitePath: string, displayName: string) {
-    super(displayName, vscode.TreeItemCollapsibleState.Collapsed);
+    super(displayName, vscode.TreeItemCollapsibleState.None);
     this.wranglerPath = wranglerPath;
     this.sqlitePath = sqlitePath;
     this.displayName = displayName;
     this.contextValue = "wranglerD1Database";
     this.iconPath = new vscode.ThemeIcon("database");
-    this.tooltip = sqlitePath;
-  }
-}
-
-export class WranglerD1TableNode extends LocalWranglerNode {
-  readonly type = "d1Table" as const;
-  readonly wranglerPath: string;
-  readonly sqlitePath: string;
-  readonly table: D1TableInfo;
-
-  constructor(
-    wranglerPath: string,
-    sqlitePath: string,
-    table: D1TableInfo
-  ) {
-    super(table.name, vscode.TreeItemCollapsibleState.Collapsed);
-    this.wranglerPath = wranglerPath;
-    this.sqlitePath = sqlitePath;
-    this.table = table;
-    this.contextValue = "wranglerD1Table";
-    this.iconPath = new vscode.ThemeIcon("list-unordered");
-    this.description = `${table.rowCount} rows`;
-    this.tooltip = `D1 Table: ${table.name}`;
-  }
-}
-
-export class WranglerD1RowNode extends LocalWranglerNode {
-  readonly type = "d1Row" as const;
-  readonly wranglerPath: string;
-  readonly sqlitePath: string;
-  readonly tableName: string;
-  readonly row: Record<string, unknown>;
-
-  constructor(
-    wranglerPath: string,
-    sqlitePath: string,
-    tableName: string,
-    row: Record<string, unknown>,
-    index: number
-  ) {
-    const label = buildRowLabel(row, index);
-    super(label, vscode.TreeItemCollapsibleState.None);
-    this.wranglerPath = wranglerPath;
-    this.sqlitePath = sqlitePath;
-    this.tableName = tableName;
-    this.row = row;
-    this.contextValue = "wranglerD1Row";
-    this.iconPath = new vscode.ThemeIcon("symbol-field");
-    this.description = buildRowDescription(row);
-    this.tooltip = `D1 Row: ${tableName}`;
+    this.description = "Click to open visual editor";
+    this.tooltip = `D1 Database: ${displayName}\n${sqlitePath}\nClick to open the SQLite visual editor.`;
     this.command = {
-      command: "wranglerLocal.openItem",
-      title: "Open D1 Row",
+      command: "wranglerLocal.openSqliteDatabase",
+      title: "Open D1 Database",
       arguments: [this],
     };
   }
@@ -392,18 +342,6 @@ export function isWranglerD1DatabaseNode(
   return node.type === "d1Database";
 }
 
-export function isWranglerD1TableNode(
-  node: LocalWranglerNode
-): node is WranglerD1TableNode {
-  return node.type === "d1Table";
-}
-
-export function isWranglerD1RowNode(
-  node: LocalWranglerNode
-): node is WranglerD1RowNode {
-  return node.type === "d1Row";
-}
-
 function buildKvDescription(entry: KvEntryInfo): string {
   const parts: string[] = [];
   if (entry.size !== undefined) {
@@ -448,22 +386,6 @@ function buildR2Tooltip(object: R2ObjectInfo): string {
     lines.push(`Uploaded: ${normalizeEpoch(object.uploaded).toLocaleString()}`);
   }
   return lines.join("\n");
-}
-
-function buildRowLabel(row: Record<string, unknown>, index: number): string {
-  if (typeof row.rowid === "number") {
-    return `rowid ${row.rowid}`;
-  }
-  return `Row ${index + 1}`;
-}
-
-function buildRowDescription(row: Record<string, unknown>): string {
-  const previewKeys = Object.keys(row).filter((key) => key !== "rowid");
-  const preview = previewKeys
-    .slice(0, 2)
-    .map((key) => `${key}: ${String(row[key])}`)
-    .join(" • ");
-  return preview;
 }
 
 function normalizeEpoch(value: number): Date {

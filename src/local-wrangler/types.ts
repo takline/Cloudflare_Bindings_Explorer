@@ -53,12 +53,3 @@ export interface D1DatabaseInfo {
   sqlitePath: string;
   displayName: string;
 }
-
-export interface D1TableInfo {
-  name: string;
-  rowCount: number;
-}
-
-export interface D1RowsResult {
-  rows: Array<Record<string, unknown>>;
-}

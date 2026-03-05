@@ -85,6 +85,7 @@ dependencies = [
  "anyhow",
  "keyring",
  "opendal",
+ "reqwest",
  "serde",
  "serde_json",
  "sqlx",

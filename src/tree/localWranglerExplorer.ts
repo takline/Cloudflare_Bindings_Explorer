@@ -5,8 +5,6 @@ import {
   LocalWranglerRuntimeNotFoundError,
   findWranglerRoots,
   listD1Databases,
-  listD1Rows,
-  listD1Tables,
   listKvEntries,
   listKvNamespaces,
   listR2Buckets,
@@ -17,8 +15,6 @@ import {
   LocalWranglerNode,
   MessageNode,
   WranglerD1DatabaseNode,
-  WranglerD1RowNode,
-  WranglerD1TableNode,
   WranglerKvEntryNode,
   WranglerKvNamespaceNode,
   WranglerKvPrefixNode,
@@ -30,8 +26,6 @@ import {
   WranglerSqliteRootNode,
   WranglerStorageTypeNode,
   isWranglerD1DatabaseNode,
-  isWranglerD1RowNode,
-  isWranglerD1TableNode,
   isWranglerKvNamespaceNode,
   isWranglerKvPrefixNode,
   isWranglerR2BucketNode,
@@ -107,14 +101,6 @@ export class LocalWranglerExplorer
       }
 
       if (isWranglerD1DatabaseNode(element)) {
-        return await this.getD1Tables(element);
-      }
-
-      if (isWranglerD1TableNode(element)) {
-        return await this.getD1Rows(element);
-      }
-
-      if (isWranglerD1RowNode(element)) {
         return [];
       }
 
@@ -315,63 +301,22 @@ export class LocalWranglerExplorer
       return [new MessageNode("No D1 databases found.")];
     }
 
-    const nodes: LocalWranglerNode[] = [];
+    const nodes: LocalWranglerNode[] = [
+      new MessageNode("Click a D1 database to open the SQLite visual editor."),
+    ];
     for (const db of databases) {
       const node = new WranglerD1DatabaseNode(
         storageNode.wranglerPath,
         db.sqlitePath,
         db.displayName
       );
-      const description = await describeSqliteFile(db.sqlitePath);
-      if (description) {
-        node.description = description;
+      const fileDetails = await describeSqliteFile(db.sqlitePath);
+      if (fileDetails) {
+        node.tooltip = `${node.tooltip}\n${fileDetails}`;
       }
       nodes.push(node);
     }
     return nodes;
-  }
-
-  private async getD1Tables(
-    databaseNode: WranglerD1DatabaseNode
-  ): Promise<LocalWranglerNode[]> {
-    const tables = await listD1Tables({ sqlitePath: databaseNode.sqlitePath });
-
-    if (tables.length === 0) {
-      return [new MessageNode("No tables found in this D1 database.")];
-    }
-
-    return tables.map(
-      (table) =>
-        new WranglerD1TableNode(
-          databaseNode.wranglerPath,
-          databaseNode.sqlitePath,
-          table
-        )
-    );
-  }
-
-  private async getD1Rows(
-    tableNode: WranglerD1TableNode
-  ): Promise<LocalWranglerNode[]> {
-    const result = await listD1Rows({
-      sqlitePath: tableNode.sqlitePath,
-      table: tableNode.table.name,
-    });
-
-    if (result.rows.length === 0) {
-      return [new MessageNode("No rows found in this table.")];
-    }
-
-    return result.rows.map(
-      (row, index) =>
-        new WranglerD1RowNode(
-          tableNode.wranglerPath,
-          tableNode.sqlitePath,
-          tableNode.table.name,
-          row,
-          index
-        )
-    );
   }
 
   private async getManualSqliteRoot(): Promise<WranglerSqliteRootNode> {
