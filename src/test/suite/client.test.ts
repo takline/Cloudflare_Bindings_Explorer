@@ -146,7 +146,7 @@ describe("S3 Client (Unit)", () => {
       assert.strictEqual(error.name, "S3Error");
       assert.strictEqual(
         error.message,
-        "Cannot connect to endpoint: https://deterministic-endpoint.r2.example.com. Please verify the URL is correct."
+        "Cannot connect to endpoint. Please verify the URL is correct."
       );
       assert.strictEqual(error.code, "ENOTFOUND");
       assert.strictEqual(error.statusCode, undefined);

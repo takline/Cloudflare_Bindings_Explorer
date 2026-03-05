@@ -37,3 +37,4 @@ build.ts
 src-rust/**
 !src-rust/bindings-cli/target/release/bindings-cli
 !src-rust/bindings-cli/target/debug/bindings-cli
+iOS-notes/**

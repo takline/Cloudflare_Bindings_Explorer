@@ -2,6 +2,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { randomBytes } from "node:crypto";
 import * as vscode from "vscode";
+import * as fs_node from "fs";
+import * as path_node from "path";
 import { S3Explorer } from "./tree/explorer";
 import { LocalWranglerExplorer } from "./tree/localWranglerExplorer";
 import { S3FileSystemProvider } from "./fs/provider";
@@ -11,7 +13,7 @@ import {
   addManualSqliteDatabase,
   removeManualSqliteDatabase,
 } from "./sqlite/manualDatabases";
-import { listBuckets, searchObjects } from "./s3/listing";
+import { listBuckets, searchObjects, listObjects } from "./s3/listing";
 import {
   createFolder,
   uploadFile,
@@ -562,16 +564,45 @@ async function handleUploadFolder(node: any) {
     }
 
     const folder = folders[0];
-    showInformationMessage(
-      "Folder upload functionality will be implemented with recursive file walking"
-    );
-
-    // TODO: Implement recursive folder upload
-    // This would involve:
-    // 1. Walking the directory tree
-    // 2. Reading all files
-    // 3. Uploading with proper key structure
-    // 4. Progress tracking for the entire operation
+    const fsPath = folder.fsPath;
+    
+    // Walk directory recursively
+    const filesToUpload: string[] = [];
+    const walk = async (dir: string) => {
+      const entries = await fs_node.promises.readdir(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path_node.join(dir, entry.name);
+        if (entry.isDirectory()) {
+          await walk(fullPath);
+        } else {
+          filesToUpload.push(fullPath);
+        }
+      }
+    }
+    
+    await walk(fsPath);
+    if (filesToUpload.length === 0) {
+      showInformationMessage("Folder is empty.");
+      return;
+    }
+    
+    await withUploadProgress(async (progress) => {
+      let completed = 0;
+      for (const file of filesToUpload) {
+        const relativePath = path_node.relative(fsPath, file);
+        // Normalize path for S3 key
+        const keyPath = relativePath.split(path_node.sep).join('/');
+        const targetKey = prefix ? `${prefix}${keyPath}` : keyPath;
+        
+        progress.report({ message: `Uploading ${relativePath}...`, increment: (completed / filesToUpload.length) * 100 });
+        await uploadFile(bucket, targetKey, file);
+        completed++;
+      }
+    }, `${filesToUpload.length} files`);
+    
+    s3Cache.invalidate(bucket);
+    s3Explorer.refresh();
+    showInformationMessage(`Successfully uploaded ${filesToUpload.length} files from folder.`);
   } catch (error) {
     showErrorMessage(
       `Failed to upload folder: ${
@@ -648,10 +679,27 @@ async function handleDelete(node: any) {
         return;
       }
 
-      showInformationMessage(
-        "Folder deletion functionality will be implemented with recursive deletion"
-      );
-      // TODO: Implement recursive folder deletion
+      await withDeleteProgress(async (progress) => {
+        progress.report({ message: "Finding objects to delete..." });
+        // list all objects under prefix
+        let continuationToken: string | undefined;
+        let totalDeleted = 0;
+        do {
+          const contents: any = await listObjects(node.bucket, node.prefix, continuationToken);
+          const keysToDelete = contents.objects.map((obj: any) => obj.key);
+          if (keysToDelete.length > 0) {
+             progress.report({ message: `Deleting ${keysToDelete.length} objects...` });
+             await deleteObjects(node.bucket, keysToDelete);
+             totalDeleted += keysToDelete.length;
+          }
+          continuationToken = contents.continuationToken;
+        } while (continuationToken);
+        
+        showInformationMessage(`Successfully deleted ${totalDeleted} objects from prefix.`);
+      }, 1);
+      
+      s3Cache.invalidate(node.bucket);
+      s3Explorer.refresh();
     }
   } catch (error) {
     showErrorMessage(
@@ -661,18 +709,68 @@ async function handleDelete(node: any) {
 }
 
 async function handleCopy(node: any) {
-  showInformationMessage("Copy functionality will be implemented");
-  // TODO: Implement copy with target selection
+  if (!isObjectNode(node)) {
+    showErrorMessage("Can only copy objects.");
+    return;
+  }
+  const newKey = await vscode.window.showInputBox({
+    prompt: "Enter new key for copied object",
+    value: node.key,
+  });
+  if (!newKey || newKey === node.key) { return; }
+  
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Copying object...",
+        cancellable: false
+      },
+      async () => {
+        await copyObject(node.bucket, node.key, node.bucket, newKey);
+      }
+    );
+    s3Cache.invalidate(node.bucket);
+    s3Explorer.refresh();
+    showInformationMessage("Object copied successfully");
+  } catch (error) {
+    showErrorMessage(`Copy failed: ${error instanceof Error ? error.message : error}`);
+  }
 }
 
 async function handleMove(node: any) {
-  showInformationMessage("Move functionality will be implemented");
-  // TODO: Implement move with target selection
+  if (!isObjectNode(node)) {
+    showErrorMessage("Can only move objects.");
+    return;
+  }
+  const newKey = await vscode.window.showInputBox({
+    prompt: "Enter new key for moved object",
+    value: node.key,
+  });
+  if (!newKey || newKey === node.key) { return; }
+  
+  try {
+    await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: "Moving object...",
+        cancellable: false
+      },
+      async () => {
+        await moveObject(node.bucket, node.key, node.bucket, newKey);
+      }
+    );
+    s3Cache.invalidate(node.bucket);
+    s3Explorer.refresh();
+    showInformationMessage("Object moved successfully");
+  } catch (error) {
+    showErrorMessage(`Move failed: ${error instanceof Error ? error.message : error}`);
+  }
 }
 
 async function handleRename(node: any) {
-  showInformationMessage("Rename functionality will be implemented");
-  // TODO: Implement rename (copy to new key + delete old key)
+  // Essentially move inside the same prefix folder or rename key
+  await handleMove(node);
 }
 
 async function handleGeneratePresignedUrl(node: any) {

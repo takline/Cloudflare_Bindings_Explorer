@@ -9,76 +9,101 @@
 <br>
 <br>
 
-A VSCode extension to browse and manage Cloudflare bindings (R2, KV, D1), AWS S3, and MinIO storage directly in your editor. This extension combines file explorer functionality with a built-in EML (Email) file viewer.
+A powerful VS Code extension to browse and manage **Cloudflare bindings** (R2, KV, D1), **AWS S3**, and **MinIO** storage directly from your editor. Say goodbye to switching between the Cloudflare dashboard and your code—explore, query, and manage your data right where you build.
 
+## Key Features
 
-## Features
-- Connect to S3-compatible cloud storage (specifically configured and optimized for Cloudflare R2)
-- Explore remote bindings in a tree view with top-level groups: `D1`, `R2`, `KV`
-- Open remote D1 databases in the SQLite visual editor via click-to-open snapshots
-- Explore remote KV namespaces, prefixes, and keys
-- Explore local Wrangler storage (KV, D1, R2) from `.wrangler*` and `wrangler*` directories
-- Visual SQLite editor for local bindings and manually added databases
-- Read, upload, delete, rename, and move objects
-- Generate Presigned URLs
-- Seamlessly open and view `.eml` emails including their attachments and HTML bodies within VS Code
-- Built with modern Node and Bun APIs
+- **Cloudflare R2 & S3-Compatible Storage** 
+  - Effortlessly browse buckets, prefixes, and objects.
+  - Upload, download, rename, move, and delete files.
+  - Generate presigned URLs for quick sharing.
+  - S3 configuration is heavily optimized for Cloudflare R2 (`auto` region defaults).
 
-## Configuration & Security
-- Use `Update R2 Endpoint & Credentials` from the command palette to configure access.
-- Credentials are stored in system keyring storage and are not persisted in `settings.json`.
-- Existing credentials are masked in the setup UI (`********`) and never displayed in plaintext.
-- Default region is `auto` (recommended for Cloudflare R2).
-- Optional remote D1/KV setup:
-  - Set `cloudflare.accountId` in settings.
-  - Save `cloudflare.apiToken` in the secure setup panel (stored in keyring).
+- **Remote Cloudflare Explorer**
+  - **D1 Databases**: Explore remote databases, open them in an interactive SQLite visual editor, and view schema/table structures.
+  - **KV Namespaces**: Browse keys and prefixes. Easily view string and JSON values.
+  - **R2 Buckets**: View alongside your other remote bindings.
 
-## Prerequisites
-- Bun (required for development scripts and local env seeding)
-- Rust toolchain (required to build the bindings CLI used by local SQLite exploration)
-- VS Code (for extension development and testing)
+- **Local Wrangler Explorer**
+  - Scans your workspace for `.wrangler*` and `wrangler*` directories automatically.
+  - Instantly exposes local **KV namespaces**, **D1 databases**, and **R2 buckets** spun up by `wrangler dev`.
+  - View local SQLite database files (like D1 local state) in a rich visual editor.
+  - Easily add external SQLite databases to the local explorer.
 
-## Local Wrangler Explorer
-The **Wrangler Local** view scans your workspace for `.wrangler*` and `wrangler*` directories and exposes:
-- KV namespaces and keys (values open as files)
-- D1 databases, tables, and rows (rows open as JSON)
-- R2 buckets and objects (objects open as files)
-- SQLite databases (open in the visual editor)
+- **Integrated EML (Email) Viewer**
+  - Double-click any `.eml` file to read it seamlessly within VS Code.
+  - View rendered HTML email bodies and download attachments—perfect for testing Cloudflare Email Routing workers.
 
-Add a custom SQLite database with the `Add SQLite Database` action in the Wrangler Local view title bar.
+---
 
-**Requirements:**
-- Build the bindings CLI once via `bun run build:cli` (or `bun run compile`).
+## Installation
 
-To seed the sample local environment used in this repo:
+1. Open VS Code and navigate to the **Extensions** view (`Ctrl+Shift+X` or `Cmd+Shift+X`).
+2. Search for **Cloudflare Bindings Explorer**.
+3. Click **Install**.
+4. Once installed, a new Cloudflare icon will appear in your Activity Bar.
+
+---
+
+## Configuration & Usage
+
+### 1. Connecting to Cloudflare R2 / S3
+To explore your R2 buckets, you need to configure your S3 credentials.
+
+1. Open the Command Palette (`Ctrl+Shift+P` or `Cmd+Shift+P`).
+2. Run **`Cloudflare: Update R2 Endpoint & Credentials`**.
+3. Enter your **Account ID**, **R2 Access Key ID**, and **R2 Secret Access Key** when prompted.
+   - *Note: You can generate an R2 token from the Cloudflare Dashboard under **R2 -> Manage R2 API Tokens**.*
+4. Your credentials are securely stored using your operating system's native keychain (via VS Code's SecretStorage) and are never saved to plain text settings files.
+
+### 2. Exploring Remote D1 and KV Bindings
+To view your remote Cloudflare D1 databases and KV namespaces, provide your standard Cloudflare API credentials.
+
+1. Go to your VS Code Settings (`Ctrl+,` or `Cmd+,`).
+2. Search for `Cloudflare Bindings Explorer` and set your `cloudflare.accountId`.
+3. Open the Command Palette and run **`Cloudflare: Update R2 Endpoint & Credentials`** to provide your **Cloudflare API Token** (requires D1/KV read permissions).
+4. Refresh the **Remote Cloudflare** view to see your resources populated.
+
+### 3. Local Wrangler Development
+If you use `wrangler dev` to test your workers locally, the **Wrangler Local** view will automatically detect your `.wrangler` state folder within the active workspace.
+- **D1**: Click on a database to open a read-only visual snapshot of its state.
+- **KV**: Browse local key-value pairs stored during development.
+- **R2**: Manage objects stored in local emulator buckets.
+
+---
+
+## Security
+
+Security is our top priority:
+- Sensitive credentials (API Tokens, Secret Keys) are strictly stored in VS Code's system keychain vault. 
+- They are never written to `settings.json` or any workspace files.
+- The secure setup panel masks existing credentials (`********`) to prevent over-the-shoulder exposure.
+
+---
+
+## Contributing & Development
+
+This extension is built with modern Node/Bun APIs and a custom high-performance Rust CLI helper for SQLite operations.
+
+**Prerequisites:**
+- [Bun](https://bun.sh/)
+- [Rust toolchain](https://rustup.rs/) (cargo)
+
+**Setup:**
 ```bash
-bun run seed:wrangler:local
-```
-
-This command creates `.wrangler/state/v3` in the repo root and seeds local KV, D1, and R2 data using `wrangler --local`.
-
-## Development
-```bash
+git clone https://github.com/takline/Cloudflare_Bindings_Explorer.git
+cd Cloudflare_Bindings_Explorer
 bun install
 bun run watch
 ```
+Press `F5` in VS Code to launch the Extension Development Host.
 
-In VS Code, press `F5` to launch the Extension Development Host.
-
-One-off build + checks:
+**Testing:**
 ```bash
 bun run compile
-bun run lint
-bun run typecheck
 bun run test
 ```
 
-Fast unit test:
-```bash
-bun run test:unit
-```
+## Feedback & Issues
 
-Package a VSIX locally:
-```bash
-bun run package
-```
+Encountered a bug or have a feature request? Please open an issue on the [GitHub Repository](https://github.com/takline/Cloudflare_Bindings_Explorer).

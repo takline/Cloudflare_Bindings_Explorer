@@ -8,11 +8,11 @@
   "icon": "images/logo/dark.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/takline/Cloudflare-Bindings-Explorer.git"
+    "url": "https://github.com/takline/Cloudflare_Bindings_Explorer.git"
   },
-  "homepage": "https://github.com/takline/Cloudflare-Bindings-Explorer#readme",
+  "homepage": "https://github.com/takline/Cloudflare_Bindings_Explorer#readme",
   "bugs": {
-    "url": "https://github.com/takline/Cloudflare-Bindings-Explorer/issues"
+    "url": "https://github.com/takline/Cloudflare_Bindings_Explorer/issues"
   },
   "engines": {
     "vscode": "^1.75.0"

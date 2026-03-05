@@ -69,9 +69,7 @@ export async function testConnection(): Promise<void> {
 
     if (error.code === "NetworkingError" || error.code === "ENOTFOUND") {
       throw new S3Error(
-        `Cannot connect to endpoint: ${
-          (await getConfig()).endpointUrl
-        }. Please verify the URL is correct.`,
+        `Cannot connect to endpoint. Please verify the URL is correct.`,
         error.code,
         undefined,
         true
