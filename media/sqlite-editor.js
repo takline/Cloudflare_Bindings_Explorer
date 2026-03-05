@@ -137,7 +137,12 @@
     elements.tableView.classList.toggle("hidden", active);
   });
 
-  elements.refreshBtn.addEventListener("click", () => refreshCurrentTable());
+  elements.refreshBtn.addEventListener("click", () => {
+    const tableName = state.currentTable || undefined;
+    elements.statusBar.innerHTML = "<span>Refreshing from source...</span>";
+    elements.tableView.innerHTML = '<div class="loading-state">Refreshing data from source...</div>';
+    vscode.postMessage({ type: "refreshFromSource", tableName });
+  });
 
   elements.copyBtn.addEventListener("click", async () => {
     if (!state.currentData) return;
@@ -152,7 +157,11 @@
   elements.executeQueryBtn.addEventListener("click", () => {
     const query = elements.queryInput.value.trim();
     if (!query) return;
-    vscode.postMessage({ type: "executeQuery", query });
+    vscode.postMessage({
+      type: "executeQuery",
+      query,
+      tableName: state.currentTable || undefined,
+    });
   });
 
   elements.addRowBtn.addEventListener("click", () => {
@@ -189,7 +198,9 @@
 
   function updateDbInfo(info) {
     state.dbInfo = info;
-    elements.dbMeta.textContent = `${info.name} • ${info.path}`;
+    const displayName = info.displayName || info.name;
+    const locationLabel = info.locationLabel || info.path;
+    elements.dbMeta.textContent = `${displayName} • ${locationLabel}`;
     elements.dbSize.textContent = formatBytes(info.sizeBytes);
   }
 
@@ -204,11 +215,21 @@
 
     const persisted = vscode.getState() || {};
     const selected = persisted.selectedTable;
+    const hasSelected = state.tables.some((table) => table.name === selected);
+    const firstNonEmptyTable = state.tables.find((table) => table.rowCount > 0);
+    const nextSelected = hasSelected
+      ? selected
+      : firstNonEmptyTable
+      ? firstNonEmptyTable.name
+      : state.tables.length > 0
+      ? state.tables[0].name
+      : null;
 
     state.tables.forEach((table) => {
       const item = document.createElement("li");
       item.className = "table-item";
-      if (table.name === selected) {
+      item.dataset.tableName = table.name;
+      if (table.name === nextSelected) {
         item.classList.add("active");
       }
       const icon = table.type === "view" ? "👁️" : "📋";
@@ -223,24 +244,28 @@
       elements.tableList.appendChild(item);
     });
 
-    if (selected) {
-      const selectedItem = Array.from(elements.tableList.querySelectorAll(".table-item")).find(
-        (el) => el.textContent.includes(selected)
-      );
+    if (nextSelected) {
+      const selectedItem = Array.from(
+        elements.tableList.querySelectorAll(".table-item")
+      ).find((el) => el.dataset.tableName === nextSelected);
       if (selectedItem) {
-        vscode.postMessage({ type: "getTableData", tableName: selected });
+        selectTable(nextSelected, selectedItem, false);
       }
     }
   }
 
-  function selectTable(tableName, element) {
+  function selectTable(tableName, element, persist = true) {
     Array.from(elements.tableList.querySelectorAll(".table-item")).forEach((item) => {
       item.classList.remove("active");
     });
     element.classList.add("active");
-    vscode.setState({ selectedTable: tableName });
+    if (persist) {
+      vscode.setState({ selectedTable: tableName });
+    }
     elements.queryPanel.classList.remove("active");
     elements.tableView.classList.remove("hidden");
+    elements.statusBar.innerHTML = `<span>Loading ${escapeHtml(tableName)}...</span>`;
+    elements.tableView.innerHTML = '<div class="loading-state">Loading table data...</div>';
     vscode.postMessage({ type: "getTableData", tableName });
   }
 
@@ -248,18 +273,34 @@
     const data = state.currentData;
     elements.tableView.innerHTML = "";
     elements.statusBar.innerHTML = "";
+    elements.messageContainer.innerHTML = "";
 
     if (!data || !data.rows.length) {
       elements.tableView.innerHTML = '<div class="empty-state">No rows found for this table.</div>';
       return;
     }
 
+    const isRemoteSource = state.dbInfo && state.dbInfo.source === "remote-d1";
+    const primaryKeyColumns = data.columns
+      .filter((column) => column.primaryKey)
+      .map((column) => column.name);
+    const supportsRemoteMutations = !isRemoteSource || primaryKeyColumns.length > 0;
+
     const filteredRows = applyFilter(data.rows, state.filter);
     const visibleRows = filteredRows.length;
-    elements.statusBar.innerHTML = `
-      <span>Showing ${visibleRows} of ${data.rowCount} rows</span>
-      <span>${data.columns.length} columns</span>
-    `;
+    const statusParts = [
+      `<span>Showing ${visibleRows} of ${data.rowCount} rows</span>`,
+      `<span>${data.columns.length} columns</span>`,
+    ];
+    if (isRemoteSource) {
+      statusParts.push("<span>Remote D1 live mode</span>");
+    }
+    elements.statusBar.innerHTML = statusParts.join("");
+
+    if (isRemoteSource && !supportsRemoteMutations) {
+      elements.messageContainer.innerHTML =
+        '<div class="message warning">This table has no PRIMARY KEY. Row edit/delete is disabled. Use SQL Query for mutations.</div>';
+    }
 
     const table = document.createElement("table");
     const thead = document.createElement("thead");
@@ -283,6 +324,7 @@
     const tbody = document.createElement("tbody");
     filteredRows.forEach((row) => {
       const tr = document.createElement("tr");
+      const rowIdentity = buildRowIdentity(row, primaryKeyColumns);
       const rowidCell = document.createElement("td");
       rowidCell.className = "rowid";
       rowidCell.textContent = row._rowid_;
@@ -290,24 +332,28 @@
 
       data.columns.forEach((col) => {
         const cell = document.createElement("td");
-        cell.className = "cell-editable";
-        cell.contentEditable = true;
+        const editable = !isRemoteSource || supportsRemoteMutations;
+        cell.className = editable ? "cell-editable" : "cell-readonly";
+        cell.contentEditable = editable ? "true" : "false";
         cell.dataset.rowid = row._rowid_;
         cell.dataset.column = col.name;
+        cell.dataset.rowIdentity = JSON.stringify(rowIdentity);
         const rawValue = row[col.name];
         cell.dataset.original = rawValue === null || rawValue === undefined ? "" : String(rawValue);
         cell.textContent = rawValue === null || rawValue === undefined ? "" : String(rawValue);
-        cell.addEventListener("blur", handleCellEdit);
-        cell.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            cell.blur();
-          }
-          if (event.key === "Escape") {
-            cell.textContent = cell.dataset.original;
-            cell.blur();
-          }
-        });
+        if (editable) {
+          cell.addEventListener("blur", handleCellEdit);
+          cell.addEventListener("keydown", (event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault();
+              cell.blur();
+            }
+            if (event.key === "Escape") {
+              cell.textContent = cell.dataset.original;
+              cell.blur();
+            }
+          });
+        }
         tr.appendChild(cell);
       });
 
@@ -315,7 +361,11 @@
       const deleteBtn = document.createElement("button");
       deleteBtn.textContent = "Delete";
       deleteBtn.className = "danger";
-      deleteBtn.addEventListener("click", () => deleteRow(row._rowid_));
+      if (isRemoteSource && !supportsRemoteMutations) {
+        deleteBtn.disabled = true;
+        deleteBtn.title = "PRIMARY KEY required";
+      }
+      deleteBtn.addEventListener("click", () => deleteRow(row._rowid_, rowIdentity));
       actionCell.appendChild(deleteBtn);
       tr.appendChild(actionCell);
 
@@ -338,6 +388,7 @@
     }
 
     const normalized = value === "" || value.toLowerCase() === "null" ? null : value;
+    const rowIdentity = parseRowIdentity(cell.dataset.rowIdentity);
 
     vscode.postMessage({
       type: "updateRow",
@@ -345,18 +396,26 @@
       rowId,
       column,
       value: normalized,
+      rowIdentity,
     });
 
     cell.dataset.original = normalized === null ? "" : String(normalized);
   }
 
-  function deleteRow(rowId) {
+  function deleteRow(rowId, rowIdentity) {
     if (!confirm("Delete this row?")) return;
-    vscode.postMessage({ type: "deleteRow", tableName: state.currentTable, rowId });
+    vscode.postMessage({
+      type: "deleteRow",
+      tableName: state.currentTable,
+      rowId,
+      rowIdentity,
+    });
   }
 
   function refreshCurrentTable() {
     if (!state.currentTable) return;
+    elements.statusBar.innerHTML = `<span>Refreshing ${escapeHtml(state.currentTable)}...</span>`;
+    elements.tableView.innerHTML = '<div class="loading-state">Refreshing table data...</div>';
     vscode.postMessage({ type: "getTableData", tableName: state.currentTable });
   }
 
@@ -449,5 +508,30 @@
     return div.innerHTML;
   }
 
+  function buildRowIdentity(row, primaryKeyColumns) {
+    const identity = {};
+    primaryKeyColumns.forEach((column) => {
+      identity[column] = row[column] === undefined ? null : row[column];
+    });
+    return identity;
+  }
+
+  function parseRowIdentity(serialized) {
+    if (!serialized || typeof serialized !== "string") {
+      return undefined;
+    }
+    try {
+      const parsed = JSON.parse(serialized);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return undefined;
+      }
+      return parsed;
+    } catch {
+      return undefined;
+    }
+  }
+
+  elements.statusBar.innerHTML = "<span>Loading database schema...</span>";
+  elements.tableView.innerHTML = '<div class="loading-state">Loading database schema...</div>';
   vscode.postMessage({ type: "getTables" });
 })();

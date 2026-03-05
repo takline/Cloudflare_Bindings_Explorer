@@ -122,29 +122,10 @@ describe("Local Wrangler Client", () => {
     });
   });
 
-  it("normalizes listD1Rows fallback when rows is not an array", async () => {
-    stubRunBindingsCli(async () => ({ rows: { invalid: true } }));
+  it("normalizes listD1Databases fallback when databases is not an array", async () => {
+    stubRunBindingsCli(async () => ({ databases: { invalid: true } }));
 
-    const result = await localWranglerClient.listD1Rows({
-      sqlitePath: "/tmp/demo.sqlite",
-      table: "users",
-    });
-
-    assert.deepStrictEqual(result, { rows: [] });
-  });
-
-  it("preserves listD1Rows arrays from CLI response", async () => {
-    stubRunBindingsCli(async () => ({
-      rows: [{ rowid: 1, name: "Ada" }],
-    }));
-
-    const result = await localWranglerClient.listD1Rows({
-      sqlitePath: "/tmp/demo.sqlite",
-      table: "users",
-    });
-
-    assert.deepStrictEqual(result, {
-      rows: [{ rowid: 1, name: "Ada" }],
-    });
+    const result = await localWranglerClient.listD1Databases("/tmp/.wrangler");
+    assert.deepStrictEqual(result, []);
   });
 });

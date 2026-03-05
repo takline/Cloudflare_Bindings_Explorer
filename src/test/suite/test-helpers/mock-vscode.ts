@@ -7,6 +7,10 @@ interface MockR2Config {
   maxPreviewSizeBytes: number;
 }
 
+interface MockCloudflareConfig {
+  accountId: string;
+}
+
 const defaultR2Config: MockR2Config = {
   endpointUrl: "https://unit-test.r2.example.com",
   region: "auto",
@@ -15,6 +19,10 @@ const defaultR2Config: MockR2Config = {
 };
 
 let r2Config: MockR2Config = { ...defaultR2Config };
+const defaultCloudflareConfig: MockCloudflareConfig = {
+  accountId: "",
+};
+let cloudflareConfig: MockCloudflareConfig = { ...defaultCloudflareConfig };
 type ModuleLoad = (
   request: string,
   parent: NodeModule | undefined,
@@ -122,11 +130,14 @@ const vscodeMock = {
   },
   workspace: {
     workspaceFolders: undefined as unknown,
-    getConfiguration(_section?: string) {
+    getConfiguration(section?: string) {
       return {
         get<T>(key: string, defaultValue?: T): T {
-          if (key in r2Config) {
+          if ((section === "r2" || !section) && key in r2Config) {
             return r2Config[key as keyof MockR2Config] as unknown as T;
+          }
+          if ((section === "cloudflare" || !section) && key in cloudflareConfig) {
+            return cloudflareConfig[key as keyof MockCloudflareConfig] as unknown as T;
           }
           return defaultValue as T;
         },
@@ -171,6 +182,7 @@ export function uninstallVscodeModuleMock(): void {
   moduleWithLoad._load = originalLoad;
   originalLoad = null;
   resetMockR2Config();
+  resetMockCloudflareConfig();
 }
 
 export function setMockR2Config(overrides: Partial<MockR2Config>): void {
@@ -179,4 +191,14 @@ export function setMockR2Config(overrides: Partial<MockR2Config>): void {
 
 export function resetMockR2Config(): void {
   r2Config = { ...defaultR2Config };
+}
+
+export function setMockCloudflareConfig(
+  overrides: Partial<MockCloudflareConfig>
+): void {
+  cloudflareConfig = { ...cloudflareConfig, ...overrides };
+}
+
+export function resetMockCloudflareConfig(): void {
+  cloudflareConfig = { ...defaultCloudflareConfig };
 }

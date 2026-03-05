@@ -9,6 +9,10 @@ export interface TestConfig {
   region: string;
   testBucketPrefix: string;
   testBucketName?: string;
+  cloudflareAccountId: string;
+  cloudflareApiToken: string;
+  remoteD1DatabaseName: string;
+  remoteKvNamespaceTitle: string;
 }
 
 /**
@@ -23,6 +27,10 @@ export function getTestConfig(): TestConfig {
     region: process.env.R2_REGION || "auto",
     testBucketPrefix: "r2-test-ci",
     testBucketName: process.env.R2_TEST_BUCKET || process.env.R2_BUCKET,
+    cloudflareAccountId: process.env.CLOUDFLARE_ACCOUNT_ID || "",
+    cloudflareApiToken: process.env.CLOUDFLARE_API_TOKEN || "",
+    remoteD1DatabaseName: process.env.CLOUDFLARE_D1_DATABASE || "staging",
+    remoteKvNamespaceTitle: process.env.CLOUDFLARE_KV_NAMESPACE || "auth",
   };
 }
 
@@ -97,11 +105,58 @@ export class MockWorkspaceConfiguration
   readonly [key: string]: any;
 }
 
+export class MockCloudflareConfiguration
+  implements vscode.WorkspaceConfiguration
+{
+  private config: { [key: string]: any } = {};
+
+  constructor(testConfig: TestConfig) {
+    this.config = {
+      accountId: testConfig.cloudflareAccountId,
+    };
+  }
+
+  get<T>(section: string, defaultValue?: T): T {
+    return this.config[section] ?? defaultValue;
+  }
+
+  has(section: string): boolean {
+    return section in this.config;
+  }
+
+  inspect<T>(section: string):
+    | {
+        key: string;
+        defaultValue?: T;
+        globalValue?: T;
+        workspaceValue?: T;
+        workspaceFolderValue?: T;
+      }
+    | undefined {
+    throw new Error("Method not implemented.");
+  }
+
+  update(
+    section: string,
+    value: any,
+    configurationTarget?: vscode.ConfigurationTarget | boolean
+  ): Thenable<void> {
+    this.config[section] = value;
+    return Promise.resolve();
+  }
+
+  readonly [key: string]: any;
+}
+
 let originalGetConfiguration:
   | typeof vscode.workspace.getConfiguration
   | undefined;
 let originalSecrets:
-  | { accessKeyId: string | null; secretAccessKey: string | null }
+  | {
+      accessKeyId: string | null;
+      secretAccessKey: string | null;
+      cloudflareApiToken: string | null;
+    }
   | undefined;
 let didInitBindingsCli = false;
 
@@ -131,6 +186,14 @@ export async function setSecureCredentials(
   }
 }
 
+export async function setCloudflareApiToken(token: string): Promise<void> {
+  if (token) {
+    await storeSecret("cloudflare.apiToken", token);
+  } else {
+    await deleteSecret("cloudflare.apiToken");
+  }
+}
+
 /**
  * Set up test environment with mock VS Code configuration
  */
@@ -142,10 +205,12 @@ export async function setupTestEnvironment(): Promise<TestConfig> {
     originalSecrets = {
       accessKeyId: await getSecret("r2.accessKeyId"),
       secretAccessKey: await getSecret("r2.secretAccessKey"),
+      cloudflareApiToken: await getSecret("cloudflare.apiToken"),
     };
   }
 
   await setSecureCredentials(testConfig.accessKeyId, testConfig.secretAccessKey);
+  await setCloudflareApiToken(testConfig.cloudflareApiToken);
 
   if (!originalGetConfiguration) {
     originalGetConfiguration = vscode.workspace.getConfiguration.bind(
@@ -157,6 +222,9 @@ export async function setupTestEnvironment(): Promise<TestConfig> {
   (vscode.workspace as any).getConfiguration = (section?: string) => {
     if (section === "r2") {
       return new MockWorkspaceConfiguration(testConfig);
+    }
+    if (section === "cloudflare") {
+      return new MockCloudflareConfiguration(testConfig);
     }
     return originalGetConfiguration
       ? originalGetConfiguration(section)
@@ -179,6 +247,7 @@ export async function teardownTestEnvironment() {
       originalSecrets.accessKeyId || "",
       originalSecrets.secretAccessKey || ""
     );
+    await setCloudflareApiToken(originalSecrets.cloudflareApiToken || "");
     originalSecrets = undefined;
   }
 }
@@ -192,6 +261,14 @@ export function hasValidTestCredentials(): boolean {
     config.endpointUrl.trim() &&
     config.accessKeyId.trim() &&
     config.secretAccessKey.trim()
+  );
+}
+
+export function hasValidRemoteBindingsCredentials(): boolean {
+  const config = getTestConfig();
+  return !!(
+    config.cloudflareAccountId.trim() &&
+    config.cloudflareApiToken.trim()
   );
 }
 
@@ -227,6 +304,27 @@ export function assertValidLiveTestConfig(
   if (missing.length > 0) {
     throw new Error(
       `Live R2 tests require credentials. Missing: ${missing.join(", ")}.`
+    );
+  }
+
+  return config;
+}
+
+export function assertValidRemoteBindingsLiveTestConfig(
+  config: TestConfig = getTestConfig()
+): TestConfig {
+  const missing: string[] = [];
+
+  if (!config.cloudflareAccountId.trim()) {
+    missing.push("CLOUDFLARE_ACCOUNT_ID");
+  }
+  if (!config.cloudflareApiToken.trim()) {
+    missing.push("CLOUDFLARE_API_TOKEN");
+  }
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Live remote bindings tests require credentials. Missing: ${missing.join(", ")}.`
     );
   }
 

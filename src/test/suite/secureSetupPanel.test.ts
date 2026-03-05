@@ -1,5 +1,6 @@
 import * as assert from "assert";
 import {
+  inferR2EndpointUrl,
   normalizePayload,
   validateSecureSetupPayload,
   SecureSetupState,
@@ -7,32 +8,32 @@ import {
 
 describe("Secure Setup Panel Validation", () => {
   const emptyState: SecureSetupState = {
-    endpointUrl: "",
+    userId: "",
     region: "auto",
     hasAccessKeyId: false,
     hasSecretAccessKey: false,
+    hasApiToken: false,
   };
 
   it("normalizePayload trims values and defaults region to auto", () => {
     const normalized = normalizePayload({
-      endpointUrl: "  https://example.r2.cloudflarestorage.com  ",
+      userId: "  user-123  ",
       region: "   ",
       accessKeyId: "  access-key  ",
       secretAccessKey: "  secret-key  ",
+      apiToken: "  token-abc  ",
     });
 
-    assert.strictEqual(
-      normalized.endpointUrl,
-      "https://example.r2.cloudflarestorage.com"
-    );
+    assert.strictEqual(normalized.userId, "user-123");
     assert.strictEqual(normalized.region, "auto");
     assert.strictEqual(normalized.accessKeyId, "access-key");
     assert.strictEqual(normalized.secretAccessKey, "secret-key");
+    assert.strictEqual(normalized.apiToken, "token-abc");
   });
 
   it("accepts newly provided credentials when no credentials currently exist", () => {
     const payload = normalizePayload({
-      endpointUrl: "https://example.r2.cloudflarestorage.com",
+      userId: "user-123",
       region: "auto",
       accessKeyId: "AKIAEXAMPLE",
       secretAccessKey: "secret-example",
@@ -44,7 +45,7 @@ describe("Secure Setup Panel Validation", () => {
 
   it("requires both credentials when neither existing nor newly provided", () => {
     const payload = normalizePayload({
-      endpointUrl: "https://example.r2.cloudflarestorage.com",
+      userId: "user-123",
       region: "auto",
       accessKeyId: "",
       secretAccessKey: "",
@@ -54,7 +55,7 @@ describe("Secure Setup Panel Validation", () => {
     assert.strictEqual(accessKeyError, "Access Key ID is required.");
 
     const withAccessOnly = normalizePayload({
-      endpointUrl: "https://example.r2.cloudflarestorage.com",
+      userId: "user-123",
       accessKeyId: "AKIAEXAMPLE",
       secretAccessKey: "",
     });
@@ -70,7 +71,7 @@ describe("Secure Setup Panel Validation", () => {
     };
 
     const payload = normalizePayload({
-      endpointUrl: "https://example.r2.cloudflarestorage.com",
+      userId: "user-123",
       accessKeyId: "",
       secretAccessKey: "",
     });
@@ -79,15 +80,25 @@ describe("Secure Setup Panel Validation", () => {
     assert.strictEqual(error, undefined);
   });
 
-  it("rejects non-HTTPS endpoint URLs", () => {
+  it("rejects invalid user IDs", () => {
     const payload = normalizePayload({
-      endpointUrl: "http://example.r2.cloudflarestorage.com",
+      userId: "bad user id",
       region: "auto",
       accessKeyId: "AKIAEXAMPLE",
       secretAccessKey: "secret-example",
     });
 
     const error = validateSecureSetupPayload(payload, emptyState);
-    assert.strictEqual(error, "Endpoint URL must be a valid HTTPS URL.");
+    assert.strictEqual(
+      error,
+      "User ID must contain only letters, numbers, and hyphens."
+    );
+  });
+
+  it("infers endpoint URL from user ID", () => {
+    assert.strictEqual(
+      inferR2EndpointUrl("ABC123"),
+      "https://abc123.r2.cloudflarestorage.com"
+    );
   });
 });

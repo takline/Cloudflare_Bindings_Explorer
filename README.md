@@ -14,7 +14,9 @@ A VSCode extension to browse and manage Cloudflare bindings (R2, KV, D1), AWS S3
 
 ## Features
 - Connect to S3-compatible cloud storage (specifically configured and optimized for Cloudflare R2)
-- Explore buckets, folders, and objects in a tree view
+- Explore remote bindings in a tree view with top-level groups: `D1`, `R2`, `KV`
+- Open remote D1 databases in the SQLite visual editor via click-to-open snapshots
+- Explore remote KV namespaces, prefixes, and keys
 - Explore local Wrangler storage (KV, D1, R2) from `.wrangler*` and `wrangler*` directories
 - Visual SQLite editor for local bindings and manually added databases
 - Read, upload, delete, rename, and move objects
@@ -27,6 +29,9 @@ A VSCode extension to browse and manage Cloudflare bindings (R2, KV, D1), AWS S3
 - Credentials are stored in system keyring storage and are not persisted in `settings.json`.
 - Existing credentials are masked in the setup UI (`********`) and never displayed in plaintext.
 - Default region is `auto` (recommended for Cloudflare R2).
+- Optional remote D1/KV setup:
+  - Set `cloudflare.accountId` in settings.
+  - Save `cloudflare.apiToken` in the secure setup panel (stored in keyring).
 
 ## Prerequisites
 - Bun (required for development scripts and local env seeding)
@@ -47,9 +52,10 @@ Add a custom SQLite database with the `Add SQLite Database` action in the Wrangl
 
 To seed the sample local environment used in this repo:
 ```bash
-cd scripts/local-wrangler-env
-bun ./populate-wrangler.ts
+bun run seed:wrangler:local
 ```
+
+This command creates `.wrangler/state/v3` in the repo root and seeds local KV, D1, and R2 data using `wrangler --local`.
 
 ## Development
 ```bash

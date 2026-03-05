@@ -3,6 +3,10 @@ import * as path from "node:path";
 import * as vscode from "vscode";
 import initSqlJs, { Database, SqlJsStatic } from "sql.js";
 import { getNonce } from "../email/util";
+import {
+  executeRemoteD1Sql,
+  materializeRemoteD1Database,
+} from "../remote-bindings/client";
 
 export interface SqliteTableInfo {
   name: string;
@@ -31,6 +35,9 @@ export interface SqliteDatabaseInfo {
   path: string;
   sizeBytes: number;
   modifiedAt: string;
+  displayName?: string;
+  locationLabel?: string;
+  source?: "local" | "remote-d1";
 }
 
 export type SqliteValue = string | number | null | Uint8Array;
@@ -39,10 +46,23 @@ type WebviewRequest =
   | { type: "init" }
   | { type: "getTables" }
   | { type: "getTableData"; tableName: string }
-  | { type: "updateRow"; tableName: string; rowId: number; column: string; value: SqliteValue }
-  | { type: "deleteRow"; tableName: string; rowId: number }
+  | { type: "refreshFromSource"; tableName?: string }
+  | {
+      type: "updateRow";
+      tableName: string;
+      rowId: number;
+      column: string;
+      value: SqliteValue;
+      rowIdentity?: Record<string, SqliteValue>;
+    }
+  | {
+      type: "deleteRow";
+      tableName: string;
+      rowId: number;
+      rowIdentity?: Record<string, SqliteValue>;
+    }
   | { type: "insertRow"; tableName: string; values: Record<string, SqliteValue> }
-  | { type: "executeQuery"; query: string };
+  | { type: "executeQuery"; query: string; tableName?: string };
 
 type WebviewResponse =
   | { type: "dbInfo"; info: SqliteDatabaseInfo }
@@ -92,7 +112,11 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
 
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
-    const dbInfo = await this.getDatabaseInfo(document.uri.fsPath);
+    const uriContext = parseUriContext(document.uri);
+    const dbInfo = await this.getDatabaseInfo(document.uri.fsPath, uriContext);
+    if (uriContext?.remoteD1) {
+      webviewPanel.title = `Remote D1: ${uriContext.remoteD1.databaseName}`;
+    }
     webviewPanel.webview.postMessage({ type: "dbInfo", info: dbInfo } satisfies WebviewResponse);
 
     webviewPanel.webview.onDidReceiveMessage(async (rawMessage) => {
@@ -111,6 +135,8 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
     panel: vscode.WebviewPanel,
     message: WebviewRequest
   ): Promise<void> {
+    const uriContext = parseUriContext(document.uri);
+
     switch (message.type) {
       case "init":
       case "getTables": {
@@ -127,7 +153,61 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
         } satisfies WebviewResponse);
         return;
       }
+      case "refreshFromSource": {
+        if (uriContext?.remoteD1) {
+          await this.refreshRemoteD1Snapshot(uriContext.remoteD1);
+          const dbInfo = await this.getDatabaseInfo(document.uri.fsPath, uriContext);
+          panel.webview.postMessage({ type: "dbInfo", info: dbInfo } satisfies WebviewResponse);
+        }
+
+        const tables = await this.getTables(document.uri.fsPath);
+        panel.webview.postMessage({ type: "tablesLoaded", tables } satisfies WebviewResponse);
+
+        if (message.tableName) {
+          const data = await this.getTableData(document.uri.fsPath, message.tableName);
+          panel.webview.postMessage({
+            type: "tableDataLoaded",
+            tableName: message.tableName,
+            data,
+          } satisfies WebviewResponse);
+        }
+        return;
+      }
       case "updateRow": {
+        if (uriContext?.remoteD1) {
+          const whereClause = buildRemoteRowPredicate(message.rowIdentity);
+          if (!whereClause) {
+            throw new Error(
+              "Remote row updates require a table PRIMARY KEY. Use SQL Query for this table."
+            );
+          }
+          const sql = `UPDATE ${quoteIdentifier(message.tableName)} SET ${quoteIdentifier(
+            message.column
+          )} = ${toSqlLiteral(message.value)} WHERE ${whereClause}`;
+          await executeRemoteD1Sql({
+            databaseId: uriContext.remoteD1.databaseId,
+            sql,
+          });
+          await this.refreshRemoteD1Snapshot(uriContext.remoteD1);
+          const tables = await this.getTables(document.uri.fsPath);
+          panel.webview.postMessage({
+            type: "tablesLoaded",
+            tables,
+          } satisfies WebviewResponse);
+          const data = await this.getTableData(document.uri.fsPath, message.tableName);
+          panel.webview.postMessage({
+            type: "tableDataLoaded",
+            tableName: message.tableName,
+            data,
+          } satisfies WebviewResponse);
+          panel.webview.postMessage({
+            type: "updateSuccess",
+            rowId: message.rowId,
+            column: message.column,
+          } satisfies WebviewResponse);
+          return;
+        }
+
         await this.updateRow(document.uri.fsPath, message.tableName, message.rowId, message.column, message.value);
         panel.webview.postMessage({
           type: "updateSuccess",
@@ -137,6 +217,37 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
         return;
       }
       case "deleteRow": {
+        if (uriContext?.remoteD1) {
+          const whereClause = buildRemoteRowPredicate(message.rowIdentity);
+          if (!whereClause) {
+            throw new Error(
+              "Remote row deletes require a table PRIMARY KEY. Use SQL Query for this table."
+            );
+          }
+          const sql = `DELETE FROM ${quoteIdentifier(message.tableName)} WHERE ${whereClause}`;
+          await executeRemoteD1Sql({
+            databaseId: uriContext.remoteD1.databaseId,
+            sql,
+          });
+          await this.refreshRemoteD1Snapshot(uriContext.remoteD1);
+          const tables = await this.getTables(document.uri.fsPath);
+          panel.webview.postMessage({
+            type: "tablesLoaded",
+            tables,
+          } satisfies WebviewResponse);
+          const data = await this.getTableData(document.uri.fsPath, message.tableName);
+          panel.webview.postMessage({
+            type: "tableDataLoaded",
+            tableName: message.tableName,
+            data,
+          } satisfies WebviewResponse);
+          panel.webview.postMessage({
+            type: "deleteSuccess",
+            rowId: message.rowId,
+          } satisfies WebviewResponse);
+          return;
+        }
+
         await this.deleteRow(document.uri.fsPath, message.tableName, message.rowId);
         panel.webview.postMessage({
           type: "deleteSuccess",
@@ -145,11 +256,79 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
         return;
       }
       case "insertRow": {
+        if (uriContext?.remoteD1) {
+          const entries = Object.entries(message.values).filter(
+            ([, value]) => value !== undefined
+          );
+          const quotedTable = quoteIdentifier(message.tableName);
+          const sql =
+            entries.length === 0
+              ? `INSERT INTO ${quotedTable} DEFAULT VALUES`
+              : `INSERT INTO ${quotedTable} (${entries
+                  .map(([column]) => quoteIdentifier(column))
+                  .join(", ")}) VALUES (${entries
+                  .map(([, value]) => toSqlLiteral(value))
+                  .join(", ")})`;
+
+          await executeRemoteD1Sql({
+            databaseId: uriContext.remoteD1.databaseId,
+            sql,
+          });
+          await this.refreshRemoteD1Snapshot(uriContext.remoteD1);
+          const tables = await this.getTables(document.uri.fsPath);
+          panel.webview.postMessage({
+            type: "tablesLoaded",
+            tables,
+          } satisfies WebviewResponse);
+          const data = await this.getTableData(document.uri.fsPath, message.tableName);
+          panel.webview.postMessage({
+            type: "tableDataLoaded",
+            tableName: message.tableName,
+            data,
+          } satisfies WebviewResponse);
+          panel.webview.postMessage({ type: "insertSuccess" } satisfies WebviewResponse);
+          return;
+        }
+
         await this.insertRow(document.uri.fsPath, message.tableName, message.values);
         panel.webview.postMessage({ type: "insertSuccess" } satisfies WebviewResponse);
         return;
       }
       case "executeQuery": {
+        if (uriContext?.remoteD1) {
+          const rows = await executeRemoteD1Sql({
+            databaseId: uriContext.remoteD1.databaseId,
+            sql: message.query,
+          });
+          const normalizedRows = rows.map(normalizeSqliteRowValues);
+
+          if (isMutatingSqlQuery(message.query)) {
+            await this.refreshRemoteD1Snapshot(uriContext.remoteD1);
+            const tables = await this.getTables(document.uri.fsPath);
+            panel.webview.postMessage({
+              type: "tablesLoaded",
+              tables,
+            } satisfies WebviewResponse);
+            if (message.tableName) {
+              const data = await this.getTableData(document.uri.fsPath, message.tableName);
+              panel.webview.postMessage({
+                type: "tableDataLoaded",
+                tableName: message.tableName,
+                data,
+              } satisfies WebviewResponse);
+            }
+          }
+
+          panel.webview.postMessage({
+            type: "queryResult",
+            result:
+              normalizedRows.length > 0
+                ? normalizedRows
+                : { message: "Query executed successfully" },
+          } satisfies WebviewResponse);
+          return;
+        }
+
         const result = await this.executeQuery(document.uri.fsPath, message.query);
         panel.webview.postMessage({ type: "queryResult", result } satisfies WebviewResponse);
         return;
@@ -180,6 +359,13 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
           type: "getTableData",
           tableName: this.requireString(rawMessage, "tableName"),
         };
+      case "refreshFromSource": {
+        const tableName = (rawMessage as { tableName?: unknown }).tableName;
+        return {
+          type: "refreshFromSource",
+          tableName: typeof tableName === "string" ? tableName : undefined,
+        };
+      }
       case "updateRow":
         return {
           type: "updateRow",
@@ -187,12 +373,14 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
           rowId: this.requireNumber(rawMessage, "rowId"),
           column: this.requireString(rawMessage, "column"),
           value: this.normalizeValue((rawMessage as { value?: unknown }).value),
+          rowIdentity: this.optionalRecord(rawMessage, "rowIdentity"),
         };
       case "deleteRow":
         return {
           type: "deleteRow",
           tableName: this.requireString(rawMessage, "tableName"),
           rowId: this.requireNumber(rawMessage, "rowId"),
+          rowIdentity: this.optionalRecord(rawMessage, "rowIdentity"),
         };
       case "insertRow":
         return {
@@ -204,6 +392,7 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
         return {
           type: "executeQuery",
           query: this.requireString(rawMessage, "query"),
+          tableName: this.optionalString(rawMessage, "tableName"),
         };
       default:
         throw new Error(`Unknown webview message type: ${message.type}`);
@@ -247,6 +436,42 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
     return record;
   }
 
+  private optionalRecord(
+    raw: unknown,
+    key: string
+  ): Record<string, SqliteValue> | undefined {
+    if (!raw || typeof raw !== "object") {
+      return undefined;
+    }
+    const value = (raw as Record<string, unknown>)[key];
+    if (value === undefined) {
+      return undefined;
+    }
+    if (!value || typeof value !== "object") {
+      throw new Error(`Invalid ${key}.`);
+    }
+    const record: Record<string, SqliteValue> = {};
+    for (const [field, entry] of Object.entries(value)) {
+      record[field] = this.normalizeValue(entry);
+    }
+    return record;
+  }
+
+  private optionalString(raw: unknown, key: string): string | undefined {
+    if (!raw || typeof raw !== "object") {
+      return undefined;
+    }
+    const value = (raw as Record<string, unknown>)[key];
+    if (value === undefined || value === null) {
+      return undefined;
+    }
+    if (typeof value !== "string") {
+      throw new Error(`Invalid ${key}.`);
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
   private normalizeValue(value: unknown): SqliteValue {
     if (value === null || value === undefined) {
       return null;
@@ -267,8 +492,27 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
 
   private async loadDatabase(dbPath: string): Promise<Database> {
     const sql = await this.sqlJs;
-    const buffer = await fs.promises.readFile(dbPath);
-    return new sql.Database(buffer);
+    const maxAttempts = 6;
+    let lastError: unknown;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const buffer = await fs.promises.readFile(dbPath);
+        return new sql.Database(buffer);
+      } catch (error) {
+        lastError = error;
+
+        if (!isTransientSqliteOpenError(error) || attempt === maxAttempts) {
+          break;
+        }
+
+        await delay(250 * attempt);
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error(`Failed to open SQLite database: ${String(lastError)}`);
   }
 
   private async saveDatabase(dbPath: string, db: Database): Promise<void> {
@@ -276,13 +520,30 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
     await fs.promises.writeFile(dbPath, Buffer.from(data));
   }
 
-  private async getDatabaseInfo(dbPath: string): Promise<SqliteDatabaseInfo> {
+  private async getDatabaseInfo(
+    dbPath: string,
+    context?: SqliteUriContext
+  ): Promise<SqliteDatabaseInfo> {
     const stats = await fs.promises.stat(dbPath);
+
+    if (context?.remoteD1) {
+      return {
+        name: context.remoteD1.databaseName,
+        path: dbPath,
+        sizeBytes: stats.size,
+        modifiedAt: stats.mtime.toISOString(),
+        displayName: `Remote D1: ${context.remoteD1.databaseName}`,
+        locationLabel: `Database ID: ${context.remoteD1.databaseId}`,
+        source: "remote-d1",
+      };
+    }
+
     return {
       name: path.basename(dbPath),
       path: dbPath,
       sizeBytes: stats.size,
       modifiedAt: stats.mtime.toISOString(),
+      source: "local",
     };
   }
 
@@ -335,13 +596,29 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
         }))
         : [];
 
-      const dataResult = db.exec(`SELECT rowid as _rowid_, * FROM ${quotedName} LIMIT 1000`);
+      let dataResult:
+        | Array<{ columns: string[]; values: Array<unknown[]> }>
+        | undefined;
+      let syntheticRowId = false;
+      try {
+        dataResult = db.exec(`SELECT rowid as _rowid_, * FROM ${quotedName} LIMIT 1000`);
+      } catch (error) {
+        if (!isMissingRowIdError(error)) {
+          throw error;
+        }
+        syntheticRowId = true;
+        dataResult = db.exec(`SELECT * FROM ${quotedName} LIMIT 1000`);
+      }
+
       const rows = dataResult.length > 0
-        ? dataResult[0].values.map((row) => {
+        ? dataResult[0].values.map((row, rowIndex) => {
           const obj: Record<string, SqliteValue> = {};
           dataResult[0].columns.forEach((col, idx) => {
             obj[col] = row[idx] as SqliteValue;
           });
+          if (syntheticRowId) {
+            obj._rowid_ = rowIndex + 1;
+          }
           return obj;
         })
         : [];
@@ -460,6 +737,16 @@ export class SqliteVisualEditor implements vscode.CustomReadonlyEditorProvider<S
 </body>
 </html>`;
   }
+
+  private async refreshRemoteD1Snapshot(
+    remote: NonNullable<SqliteUriContext["remoteD1"]>
+  ): Promise<void> {
+    await materializeRemoteD1Database({
+      databaseId: remote.databaseId,
+      databaseName: remote.databaseName,
+      forceRefresh: true,
+    });
+  }
 }
 
 class SqliteDocument implements vscode.CustomDocument {
@@ -467,6 +754,142 @@ class SqliteDocument implements vscode.CustomDocument {
   dispose(): void {}
 }
 
+type SqliteUriContext = {
+  remoteD1?: {
+    databaseId: string;
+    databaseName: string;
+  };
+};
+
+function parseUriContext(uri: vscode.Uri): SqliteUriContext | undefined {
+  if (!uri.query) {
+    return undefined;
+  }
+
+  const query = new URLSearchParams(uri.query);
+  if (query.get("cbeRemoteD1") !== "1") {
+    return undefined;
+  }
+
+  const databaseId = (query.get("cbeRemoteD1Id") || "").trim();
+  const databaseName = (query.get("cbeRemoteD1Name") || "").trim();
+  if (!databaseId || !databaseName) {
+    return undefined;
+  }
+
+  return {
+    remoteD1: {
+      databaseId,
+      databaseName,
+    },
+  };
+}
+
+function isTransientSqliteOpenError(error: unknown): boolean {
+  const message = (
+    error instanceof Error ? error.message : String(error || "")
+  ).toLowerCase();
+
+  return (
+    message.includes("malformed") ||
+    message.includes("disk image is malformed") ||
+    message.includes("not a database") ||
+    message.includes("unable to open database file")
+  );
+}
+
+function isMissingRowIdError(error: unknown): boolean {
+  const message = (
+    error instanceof Error ? error.message : String(error || "")
+  ).toLowerCase();
+  return message.includes("no such column: rowid");
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function toSqlLiteral(value: SqliteValue): string {
+  if (value === null || value === undefined) {
+    return "NULL";
+  }
+
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? String(value) : "NULL";
+  }
+
+  if (value instanceof Uint8Array) {
+    const bytes = Array.from(value)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+    return `X'${bytes}'`;
+  }
+
+  const text = String(value).replace(/'/g, "''");
+  return `'${text}'`;
+}
+
+function isMutatingSqlQuery(sql: string): boolean {
+  const statement = sql.trim().toLowerCase();
+  return (
+    statement.startsWith("insert ") ||
+    statement.startsWith("update ") ||
+    statement.startsWith("delete ") ||
+    statement.startsWith("create ") ||
+    statement.startsWith("drop ") ||
+    statement.startsWith("alter ") ||
+    statement.startsWith("replace ")
+  );
+}
+
+function normalizeSqliteRowValues(
+  row: Record<string, unknown>
+): Record<string, SqliteValue> {
+  const normalized: Record<string, SqliteValue> = {};
+  for (const [key, value] of Object.entries(row)) {
+    normalized[key] = normalizeSqliteValue(value);
+  }
+  return normalized;
+}
+
+function normalizeSqliteValue(value: unknown): SqliteValue {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (typeof value === "string" || typeof value === "number") {
+    return value;
+  }
+  if (typeof value === "boolean") {
+    return value ? 1 : 0;
+  }
+  return JSON.stringify(value);
+}
+
 function quoteIdentifier(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;
+}
+
+export function buildRemoteRowPredicate(
+  rowIdentity?: Record<string, SqliteValue>
+): string | undefined {
+  if (!rowIdentity) {
+    return undefined;
+  }
+
+  const entries = Object.entries(rowIdentity)
+    .filter(([column]) => column.trim().length > 0)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (entries.length === 0) {
+    return undefined;
+  }
+
+  return entries
+    .map(([column, value]) => {
+      const quotedColumn = quoteIdentifier(column);
+      if (value === null || value === undefined) {
+        return `${quotedColumn} IS NULL`;
+      }
+      return `${quotedColumn} = ${toSqlLiteral(value)}`;
+    })
+    .join(" AND ");
 }

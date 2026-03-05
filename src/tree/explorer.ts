@@ -1,12 +1,18 @@
 import * as vscode from "vscode";
 import { listBuckets, listObjects } from "../s3/listing";
-import { S3Error } from "../types";
+import { CacheEntry, ListObjectsResult, S3Error } from "../types";
 import { s3Cache } from "../util/cache";
 import { logError } from "../util/output";
 import {
+  clearRemoteBindingsCache,
+  listRemoteD1Databases,
+  listRemoteKvEntries,
+  listRemoteKvNamespaces,
+} from "../remote-bindings/client";
+import { RemoteKvEntryInfo } from "../remote-bindings/types";
+import {
   BaseTreeNode,
   BucketNode,
-  PrefixNode,
   ObjectNode,
   LoadMoreNode,
   createBucketNode,
@@ -18,88 +24,155 @@ import {
   isObjectNode,
   isLoadMoreNode,
 } from "./nodes";
+import {
+  RemoteD1DatabaseNode,
+  RemoteKvEntryNode,
+  RemoteExplorerNode,
+  RemoteKvLoadMoreNode,
+  RemoteKvNamespaceNode,
+  RemoteKvPrefixNode,
+  RemoteMessageNode,
+  RemoteStorageRootNode,
+  isRemoteD1DatabaseNode,
+  isRemoteKvLoadMoreNode,
+  isRemoteKvNamespaceNode,
+  isRemoteKvPrefixNode,
+  isRemoteStorageRootNode,
+} from "./remoteNodes";
+
+type ExplorerTreeNode = BaseTreeNode | RemoteExplorerNode;
+
+type RemoteKvCacheEntry = {
+  prefixes: string[];
+  entries: RemoteKvEntryInfo[];
+  cursor?: string;
+  isTruncated: boolean;
+  namespaceTitle: string;
+};
+
+const REMOTE_D1_HIDDEN_KEY = "cloudflareBindingsExplorer.remoteD1HiddenConnections";
 
 export class S3Explorer
   implements
-    vscode.TreeDataProvider<BaseTreeNode>,
-    vscode.TreeDragAndDropController<BaseTreeNode>
+    vscode.TreeDataProvider<ExplorerTreeNode>,
+    vscode.TreeDragAndDropController<ExplorerTreeNode>
 {
-  private _onDidChangeTreeData: vscode.EventEmitter<
-    BaseTreeNode | undefined | null | void
-  > = new vscode.EventEmitter<BaseTreeNode | undefined | null | void>();
-  readonly onDidChangeTreeData: vscode.Event<
-    BaseTreeNode | undefined | null | void
-  > = this._onDidChangeTreeData.event;
+  private readonly _onDidChangeTreeData = new vscode.EventEmitter<
+    ExplorerTreeNode | undefined | null | void
+  >();
+
+  readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
 
   // Drag and drop support
   dropMimeTypes = ["application/vnd.code.tree.r2Explorer"];
   dragMimeTypes = ["text/uri-list", "application/vnd.code.tree.r2Explorer"];
 
-  constructor() {}
+  private readonly remoteKvCache = new Map<string, RemoteKvCacheEntry>();
 
-  refresh(element?: BaseTreeNode): void {
-    if (element) {
-      // Invalidate cache for specific element
-      if (isBucketNode(element)) {
-        s3Cache.invalidate(element.bucket);
-      } else if (isPrefixNode(element)) {
-        s3Cache.invalidate(element.bucket, element.prefix);
-      }
-    } else {
-      // Clear all cache
+  constructor(private readonly store?: vscode.Memento) {}
+
+  refresh(element?: ExplorerTreeNode): void {
+    if (!element) {
       s3Cache.invalidateAll();
+      this.remoteKvCache.clear();
+      clearRemoteBindingsCache();
+      this._onDidChangeTreeData.fire(undefined);
+      return;
+    }
+
+    if (isBucketNode(element)) {
+      s3Cache.invalidate(element.bucket);
+    } else if (isPrefixNode(element)) {
+      s3Cache.invalidate(element.bucket, element.prefix);
+    } else if (isRemoteStorageRootNode(element)) {
+      if (element.storageType === "kv") {
+        this.remoteKvCache.clear();
+      } else {
+        clearRemoteBindingsCache();
+      }
+    } else if (isRemoteKvNamespaceNode(element) || isRemoteKvPrefixNode(element)) {
+      this.clearRemoteKvNamespaceCache(element.namespaceId);
+    } else if (isRemoteKvLoadMoreNode(element)) {
+      this.clearRemoteKvNamespaceCache(element.namespaceId);
     }
 
     this._onDidChangeTreeData.fire(element);
   }
 
-  getTreeItem(element: BaseTreeNode): vscode.TreeItem {
+  getTreeItem(element: ExplorerTreeNode): vscode.TreeItem {
     return element;
   }
 
-  async getChildren(element?: BaseTreeNode): Promise<BaseTreeNode[]> {
+  async getChildren(element?: ExplorerTreeNode): Promise<ExplorerTreeNode[]> {
     try {
       if (!element) {
-        // Root level - show buckets
-        return await this.getBuckets();
+        return this.getRootNodes();
+      }
+
+      if (isRemoteStorageRootNode(element)) {
+        switch (element.storageType) {
+          case "d1":
+            return await this.getRemoteD1Databases();
+          case "kv":
+            return await this.getRemoteKvNamespaces();
+          case "r2":
+            return await this.getBuckets();
+          default:
+            return [];
+        }
       }
 
       if (isBucketNode(element)) {
-        // Show contents of bucket (root level)
         return await this.getBucketContents(element.bucket);
       }
 
       if (isPrefixNode(element)) {
-        // Show contents of prefix
         return await this.getPrefixContents(element.bucket, element.prefix);
       }
 
-      if (isLoadMoreNode(element)) {
-        // This shouldn't happen as LoadMore nodes are not expandable
+      if (isRemoteKvNamespaceNode(element)) {
+        return await this.getRemoteKvEntries({
+          namespaceId: element.namespaceId,
+          namespaceTitle: element.titleName,
+        });
+      }
+
+      if (isRemoteKvPrefixNode(element)) {
+        return await this.getRemoteKvEntries({
+          namespaceId: element.namespaceId,
+          namespaceTitle: element.namespaceTitle,
+          prefix: element.prefix,
+        });
+      }
+
+      if (
+        isLoadMoreNode(element) ||
+        isRemoteKvLoadMoreNode(element) ||
+        isObjectNode(element) ||
+        isRemoteD1DatabaseNode(element)
+      ) {
         return [];
       }
 
-      // Objects have no children
       return [];
     } catch (error) {
       logError("Error getting tree children.", error);
+      const message = error instanceof Error ? error.message : String(error);
 
-      // Check if this is a "bucket doesn't exist" error
+      if (isRemoteNode(element)) {
+        return [new RemoteMessageNode(`Remote bindings error: ${message}`)];
+      }
+
       if (
         error instanceof Error &&
         (error.message.includes("does not exist") ||
           error.message.includes("NoSuchBucket") ||
           error.message.includes("The specified bucket does not exist"))
       ) {
-        // Clear cache for this specific bucket if it's a bucket/prefix error
         if (element && (isBucketNode(element) || isPrefixNode(element))) {
-          const bucketName = isBucketNode(element)
-            ? element.bucket
-            : element.bucket;
-          s3Cache.invalidate(bucketName);
+          s3Cache.invalidate(element.bucket);
         }
 
-        // If this is a bucket node that doesn't exist, suggest refreshing the root
         if (element && isBucketNode(element)) {
           vscode.window
             .showErrorMessage(
@@ -108,7 +181,6 @@ export class S3Explorer
             )
             .then((selection) => {
               if (selection === "Refresh") {
-                // Refresh from root to reload bucket list
                 this.refresh();
               }
             });
@@ -128,15 +200,19 @@ export class S3Explorer
             }
           });
       } else {
-        vscode.window.showErrorMessage(
-          `Error loading S3 data: ${
-            error instanceof Error ? error.message : error
-          }`
-        );
+        vscode.window.showErrorMessage(`Error loading S3 data: ${message}`);
       }
 
       return [];
     }
+  }
+
+  private getRootNodes(): ExplorerTreeNode[] {
+    return [
+      new RemoteStorageRootNode("d1"),
+      new RemoteStorageRootNode("r2"),
+      new RemoteStorageRootNode("kv"),
+    ];
   }
 
   private async getBuckets(): Promise<BucketNode[]> {
@@ -144,21 +220,53 @@ export class S3Explorer
     return buckets.map((bucket) => createBucketNode(bucket));
   }
 
+  private async getRemoteD1Databases(): Promise<ExplorerTreeNode[]> {
+    const hiddenIds = this.getHiddenRemoteD1Ids();
+    const databases = (await listRemoteD1Databases()).filter(
+      (database) => !hiddenIds.has(database.id)
+    );
+
+    if (databases.length === 0) {
+      return [
+        new RemoteMessageNode(
+          "No remote D1 databases found.",
+          "Configure Cloudflare Account ID and API token to browse remote D1."
+        ),
+      ];
+    }
+
+    return [
+      new RemoteMessageNode("Click a D1 database to open the SQLite visual editor."),
+      ...databases.map((database) => new RemoteD1DatabaseNode(database)),
+    ];
+  }
+
+  private async getRemoteKvNamespaces(): Promise<ExplorerTreeNode[]> {
+    const namespaces = await listRemoteKvNamespaces();
+    if (namespaces.length === 0) {
+      return [
+        new RemoteMessageNode(
+          "No remote KV namespaces found.",
+          "Configure Cloudflare Account ID and API token to browse remote KV."
+        ),
+      ];
+    }
+
+    return namespaces.map((namespace) => new RemoteKvNamespaceNode(namespace));
+  }
+
   private async getBucketContents(
     bucket: string,
     continuationToken?: string
   ): Promise<BaseTreeNode[]> {
-    // Check cache first
     const cached = s3Cache.get(bucket);
     if (cached && !continuationToken) {
       return this.createNodesFromCache(bucket, cached, undefined);
     }
 
-    // Fetch from S3
     const result = await listObjects(bucket, undefined, continuationToken);
 
     if (continuationToken) {
-      // Append to cache
       s3Cache.append(
         bucket,
         result.objects,
@@ -167,7 +275,6 @@ export class S3Explorer
         result.continuationToken
       );
     } else {
-      // Set new cache
       s3Cache.set(
         bucket,
         result.objects,
@@ -185,17 +292,14 @@ export class S3Explorer
     prefix: string,
     continuationToken?: string
   ): Promise<BaseTreeNode[]> {
-    // Check cache first
     const cached = s3Cache.get(bucket, prefix);
     if (cached && !continuationToken) {
       return this.createNodesFromCache(bucket, cached, prefix);
     }
 
-    // Fetch from S3
     const result = await listObjects(bucket, prefix, continuationToken);
 
     if (continuationToken) {
-      // Append to cache
       s3Cache.append(
         bucket,
         result.objects,
@@ -205,7 +309,6 @@ export class S3Explorer
         prefix
       );
     } else {
-      // Set new cache
       s3Cache.set(
         bucket,
         result.objects,
@@ -219,24 +322,59 @@ export class S3Explorer
     return this.createNodes(bucket, result, prefix);
   }
 
+  private async getRemoteKvEntries(payload: {
+    namespaceId: string;
+    namespaceTitle: string;
+    prefix?: string;
+  }): Promise<ExplorerTreeNode[]> {
+    const cacheKey = this.remoteKvCacheKey(payload.namespaceId, payload.prefix);
+    const cached = this.remoteKvCache.get(cacheKey);
+    if (cached) {
+      return this.createRemoteKvNodes(
+        payload.namespaceId,
+        payload.namespaceTitle,
+        payload.prefix,
+        cached
+      );
+    }
+
+    const result = await listRemoteKvEntries({
+      namespaceId: payload.namespaceId,
+      prefix: payload.prefix,
+    });
+
+    const cacheEntry: RemoteKvCacheEntry = {
+      prefixes: result.prefixes.map((prefixEntry) => prefixEntry.prefix),
+      entries: result.entries,
+      cursor: result.cursor,
+      isTruncated: result.isTruncated,
+      namespaceTitle: payload.namespaceTitle,
+    };
+    this.remoteKvCache.set(cacheKey, cacheEntry);
+
+    return this.createRemoteKvNodes(
+      payload.namespaceId,
+      payload.namespaceTitle,
+      payload.prefix,
+      cacheEntry
+    );
+  }
+
   private createNodes(
     bucket: string,
-    result: any,
+    result: ListObjectsResult,
     prefix?: string
   ): BaseTreeNode[] {
     const nodes: BaseTreeNode[] = [];
 
-    // Add prefix nodes (folders)
     for (const prefixItem of result.prefixes) {
       nodes.push(createPrefixNode(bucket, prefixItem, prefix));
     }
 
-    // Add object nodes (files)
     for (const object of result.objects) {
       nodes.push(createObjectNode(bucket, object, prefix));
     }
 
-    // Add "Load more" node if there are more results
     if (result.isTruncated && result.continuationToken) {
       nodes.push(createLoadMoreNode(bucket, result.continuationToken, prefix));
     }
@@ -246,24 +384,57 @@ export class S3Explorer
 
   private createNodesFromCache(
     bucket: string,
-    cached: any,
+    cached: CacheEntry,
     prefix?: string
   ): BaseTreeNode[] {
     const nodes: BaseTreeNode[] = [];
 
-    // Add prefix nodes (folders)
     for (const prefixItem of cached.prefixes) {
       nodes.push(createPrefixNode(bucket, prefixItem, prefix));
     }
 
-    // Add object nodes (files)
     for (const object of cached.objects) {
       nodes.push(createObjectNode(bucket, object, prefix));
     }
 
-    // Add "Load more" node if there are more results
     if (cached.isTruncated && cached.continuationToken) {
       nodes.push(createLoadMoreNode(bucket, cached.continuationToken, prefix));
+    }
+
+    return nodes;
+  }
+
+  private createRemoteKvNodes(
+    namespaceId: string,
+    namespaceTitle: string,
+    prefix: string | undefined,
+    cacheEntry: RemoteKvCacheEntry
+  ): ExplorerTreeNode[] {
+    const nodes: ExplorerTreeNode[] = [];
+
+    for (const prefixValue of cacheEntry.prefixes) {
+      nodes.push(
+        new RemoteKvPrefixNode(namespaceId, namespaceTitle, prefixValue, prefix)
+      );
+    }
+
+    for (const entry of cacheEntry.entries) {
+      nodes.push(new RemoteKvEntryNode(namespaceId, namespaceTitle, entry, prefix));
+    }
+
+    if (cacheEntry.isTruncated && cacheEntry.cursor) {
+      nodes.push(
+        new RemoteKvLoadMoreNode(
+          namespaceId,
+          namespaceTitle,
+          cacheEntry.cursor,
+          prefix
+        )
+      );
+    }
+
+    if (nodes.length === 0) {
+      return [new RemoteMessageNode("No remote KV keys found.")];
     }
 
     return nodes;
@@ -272,16 +443,11 @@ export class S3Explorer
   async loadMore(node: LoadMoreNode): Promise<void> {
     try {
       if (node.prefix) {
-        await this.getPrefixContents(
-          node.bucket,
-          node.prefix,
-          node.continuationToken
-        );
+        await this.getPrefixContents(node.bucket, node.prefix, node.continuationToken);
       } else {
         await this.getBucketContents(node.bucket, node.continuationToken);
       }
 
-      // Refresh the parent to show new items
       this._onDidChangeTreeData.fire(undefined);
     } catch (error) {
       vscode.window.showErrorMessage(
@@ -292,82 +458,109 @@ export class S3Explorer
     }
   }
 
+  async loadMoreRemoteKv(node: RemoteKvLoadMoreNode): Promise<void> {
+    try {
+      const cacheKey = this.remoteKvCacheKey(node.namespaceId, node.prefix);
+      const cached = this.remoteKvCache.get(cacheKey);
+      const result = await listRemoteKvEntries({
+        namespaceId: node.namespaceId,
+        prefix: node.prefix,
+        cursor: node.cursor,
+      });
+
+      const merged: RemoteKvCacheEntry = {
+        namespaceTitle: node.namespaceTitle,
+        prefixes: mergeUniqueStrings(
+          cached?.prefixes || [],
+          result.prefixes.map((item) => item.prefix)
+        ),
+        entries: mergeUniqueKvEntries(cached?.entries || [], result.entries),
+        cursor: result.cursor,
+        isTruncated: result.isTruncated,
+      };
+
+      this.remoteKvCache.set(cacheKey, merged);
+      this._onDidChangeTreeData.fire(undefined);
+    } catch (error) {
+      vscode.window.showErrorMessage(
+        `Error loading more KV keys: ${
+          error instanceof Error ? error.message : error
+        }`
+      );
+    }
+  }
+
+  async hideRemoteD1Database(databaseId: string): Promise<void> {
+    if (!this.store) {
+      return;
+    }
+
+    const hidden = this.getHiddenRemoteD1Ids();
+    hidden.add(databaseId);
+    await this.store.update(REMOTE_D1_HIDDEN_KEY, Array.from(hidden));
+    this.refresh();
+  }
+
   // Drag and Drop Implementation
   async handleDrag(
-    source: readonly BaseTreeNode[],
+    source: readonly ExplorerTreeNode[],
     treeDataTransfer: vscode.DataTransfer,
     token: vscode.CancellationToken
   ): Promise<void> {
-    const items = source.filter(isObjectNode); // Only allow dragging objects for now
+    void token;
+    const items = source.filter(isObjectNode);
 
     if (items.length === 0) {
       return;
     }
 
-    // Store the source nodes for internal drag/drop
     treeDataTransfer.set(
       "application/vnd.code.tree.r2Explorer",
       new vscode.DataTransferItem(items)
     );
 
-    // Also set URI list for external applications
     const uris = items
       .map((item) => item.resourceUri?.toString())
-      .filter(Boolean);
-    treeDataTransfer.set(
-      "text/uri-list",
-      new vscode.DataTransferItem(uris.join("\n"))
-    );
+      .filter((uri): uri is string => typeof uri === "string" && uri.length > 0);
+    treeDataTransfer.set("text/uri-list", new vscode.DataTransferItem(uris.join("\n")));
   }
 
   async handleDrop(
-    target: BaseTreeNode | undefined,
+    target: ExplorerTreeNode | undefined,
     sources: vscode.DataTransfer,
     token: vscode.CancellationToken
   ): Promise<void> {
-    // Handle external file drops (e.g., from file explorer)
-    const fileDropData = sources.get(
-      "application/vnd.code.tree.dataTransferKey"
-    );
+    void token;
+    const fileDropData = sources.get("application/vnd.code.tree.dataTransferKey");
     if (fileDropData) {
       await this.handleExternalFileDrop(target, fileDropData);
       return;
     }
 
-    // Handle internal drag/drop
-    const internalDropData = sources.get(
-      "application/vnd.code.tree.r2Explorer"
-    );
+    const internalDropData = sources.get("application/vnd.code.tree.r2Explorer");
     if (internalDropData) {
-      await this.handleInternalDrop(target, internalDropData.value);
+      await this.handleInternalDrop(target, internalDropData.value as ObjectNode[]);
       return;
     }
 
-    // Handle URI list drops
     const uriListData = sources.get("text/uri-list");
     if (uriListData) {
-      await this.handleUriListDrop(target, uriListData.value);
+      await this.handleUriListDrop(target, String(uriListData.value || ""));
       return;
     }
   }
 
   private async handleExternalFileDrop(
-    target: BaseTreeNode | undefined,
-    fileData: any
+    target: ExplorerTreeNode | undefined,
+    fileData: unknown
   ): Promise<void> {
+    void fileData;
     if (!target || (!isBucketNode(target) && !isPrefixNode(target))) {
-      vscode.window.showErrorMessage(
-        "Can only upload files to buckets or folders"
-      );
+      vscode.window.showErrorMessage("Can only upload files to buckets or folders");
       return;
     }
 
-    const targetBucket = target.bucket;
-    const targetPrefix = isPrefixNode(target) ? target.prefix : "";
-
     try {
-      // TODO: Implement file upload logic
-      // This would involve reading the dropped files and uploading them to S3
       vscode.window.showInformationMessage(
         "File upload functionality will be implemented in the upload commands"
       );
@@ -379,9 +572,10 @@ export class S3Explorer
   }
 
   private async handleInternalDrop(
-    target: BaseTreeNode | undefined,
+    target: ExplorerTreeNode | undefined,
     sourceNodes: ObjectNode[]
   ): Promise<void> {
+    void sourceNodes;
     if (!target || (!isBucketNode(target) && !isPrefixNode(target))) {
       vscode.window.showErrorMessage(
         "Can only move/copy objects to buckets or folders"
@@ -398,7 +592,6 @@ export class S3Explorer
     }
 
     try {
-      // TODO: Implement copy/move logic using the s3/ops module
       vscode.window.showInformationMessage(
         `${action} functionality will be implemented in the copy/move commands`
       );
@@ -410,10 +603,13 @@ export class S3Explorer
   }
 
   private async handleUriListDrop(
-    target: BaseTreeNode | undefined,
+    target: ExplorerTreeNode | undefined,
     uriList: string
   ): Promise<void> {
     const uris = uriList.split("\n").filter((uri) => uri.trim());
+    if (uris.length === 0) {
+      return;
+    }
 
     if (!target || (!isBucketNode(target) && !isPrefixNode(target))) {
       vscode.window.showErrorMessage("Can only upload to buckets or folders");
@@ -421,10 +617,7 @@ export class S3Explorer
     }
 
     try {
-      // TODO: Handle URI drops (could be local files or other S3 objects)
-      vscode.window.showInformationMessage(
-        "URI drop functionality will be implemented"
-      );
+      vscode.window.showInformationMessage("URI drop functionality will be implemented");
     } catch (error) {
       vscode.window.showErrorMessage(
         `Drop failed: ${error instanceof Error ? error.message : error}`
@@ -432,26 +625,65 @@ export class S3Explorer
     }
   }
 
-  // Public method to get selected nodes (for commands)
-  getSelection(): BaseTreeNode[] {
-    // This would need to be implemented to track selection
-    // For now, return empty array
+  getSelection(): ExplorerTreeNode[] {
     return [];
   }
 
-  // Helper method to find a node by its path
   async findNode(
     bucket: string,
     key?: string
   ): Promise<BaseTreeNode | undefined> {
     if (!key) {
-      // Looking for bucket
       const buckets = await this.getBuckets();
       return buckets.find((b) => b.bucket === bucket);
     }
 
-    // TODO: Implement path-based node finding
-    // This would involve traversing the tree structure
     return undefined;
   }
+
+  private getHiddenRemoteD1Ids(): Set<string> {
+    if (!this.store) {
+      return new Set();
+    }
+    const hidden = this.store.get<string[]>(REMOTE_D1_HIDDEN_KEY, []);
+    return new Set(hidden.filter((item) => typeof item === "string"));
+  }
+
+  private remoteKvCacheKey(namespaceId: string, prefix?: string): string {
+    return `${namespaceId}::${prefix || ""}`;
+  }
+
+  private clearRemoteKvNamespaceCache(namespaceId: string): void {
+    for (const key of this.remoteKvCache.keys()) {
+      if (key.startsWith(`${namespaceId}::`)) {
+        this.remoteKvCache.delete(key);
+      }
+    }
+  }
+}
+
+function isRemoteNode(node?: ExplorerTreeNode): node is RemoteExplorerNode {
+  return Boolean(node && (node as { type?: string }).type?.startsWith("remote"));
+}
+
+function mergeUniqueStrings(existing: string[], incoming: string[]): string[] {
+  const merged = new Set<string>(existing);
+  for (const value of incoming) {
+    merged.add(value);
+  }
+  return Array.from(merged).sort((a, b) => a.localeCompare(b));
+}
+
+function mergeUniqueKvEntries(
+  existing: RemoteKvEntryInfo[],
+  incoming: RemoteKvEntryInfo[]
+): RemoteKvEntryInfo[] {
+  const byKey = new Map<string, RemoteKvEntryInfo>();
+  for (const entry of existing) {
+    byKey.set(entry.key, entry);
+  }
+  for (const entry of incoming) {
+    byKey.set(entry.key, entry);
+  }
+  return Array.from(byKey.values()).sort((a, b) => a.key.localeCompare(b.key));
 }
