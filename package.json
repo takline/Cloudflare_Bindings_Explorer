@@ -2,7 +2,7 @@
   "name": "cloudflare-bindings-explorer",
   "displayName": "Cloudflare Bindings Explorer",
   "description": "Browse and manage Cloudflare bindings (R2, KV, D1) and S3-compatible storage directly in VS Code. Includes EML email viewer.",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "publisher": "takline",
   "license": "MIT",
   "icon": "images/logo/dark.png",
